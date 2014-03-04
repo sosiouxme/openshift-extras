@@ -1,13 +1,9 @@
 #!/bin/bash
 
-# Switch environment to 'vm'
-sed -e 's/^\s*environment=ks/environment=vm/' $1 > $2
-
-# Insert VM packages
-sed -i -e '/^\@server-policy/a \
+# Switch environment to 'vm' and insert VM packages
+sed -e 's/^\s*environment=ks/environment=vm/
+/^\@server-policy/a \
 @desktop \
 eclipse \
 firefox \
-' $2
-
-chmod +x $2
+' $1 > $2

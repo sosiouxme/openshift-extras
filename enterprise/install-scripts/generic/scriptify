@@ -3,8 +3,7 @@
 sed -e '1i #!/bin/bash -x
 /^#Begin Kickstart Script/,/^set -x/ d
 /^%end/ d
+s/^\s*environment=ks/environment=sh/
 ' $1 > $2
-
-sed -i -e 's/^\s*environment=ks/environment=sh/' $2
 
 chmod +x $2
