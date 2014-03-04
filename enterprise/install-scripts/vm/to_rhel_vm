@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Switch environment to 'vm'
-sed -i -e 's/^\s*environment=ks/environment=vm/' $2
+sed -e 's/^\s*environment=ks/environment=vm/' $1 > $2
 
 # Insert VM packages
 sed -i -e '/^\@server-policy/a \
