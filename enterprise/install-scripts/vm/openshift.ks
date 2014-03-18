@@ -628,6 +628,7 @@ firefox
 
 ntp
 git
+%end
 
 %post --log=/root/anaconda-post.log
 
@@ -662,68 +663,108 @@ synchronize_clock()
 configure_repos()
 {
   echo "OpenShift: Begin configuring repos."
-  # Determine which channels we need and define corresponding predicate
-  # functions.
+  cat > /etc/yum.repos.d/openshift.repo <<YUM
 
-  # Make need_${repo}_repo return false by default.
-  for repo in optional infra node jbosseap_cartridge client_tools jbosseap jbossews; do
-      eval "need_${repo}_repo() { false; }"
-  done
+[openshift]
+name=OpenShift Enterprise
+baseurl=file:///mnt/redhat/brewroot/repos/rhose-2.0-rhel-6-build/latest/x86_64
+enabled=1
+gpgcheck=0
+priority=10
 
-  is_true "$CONF_OPTIONAL_REPO" && need_optional_repo() { :; }
+[rhscl-ruby193]
+name=RHSCL 1.0 ruby193
+baseurl=file:///mnt/redhat/brewroot/repos/ruby193-rhel-6-build/latest/x86_64
+enabled=1
+gpgcheck=0
+priority=10
 
-  if activemq || broker || datastore || named; then
-    # The ose-infrastructure channel has the activemq, broker, and mongodb
-    # packages.  The ose-infrastructure and ose-node channels also include
-    # the yum-plugin-priorities package, which is needed for the installation
-    # script itself, so we require ose-infrastructure here even if we are
-    # only installing named.
-    need_infra_repo() { :; }
+[rhscl-nodejs010]
+name=RHSCL 1.0 nodejs010
+baseurl=file:///mnt/redhat/brewroot/repos/nodejs010-rhel-6-build/latest/x86_64
+enabled=1
+gpgcheck=0
+priority=10
 
-    # The rhscl channel is needed for the ruby193 software collection.
-    need_rhscl_repo() { :; }
-  fi
+[rhscl-python27]
+name=RHSCL 1.0 python27
+baseurl=file:///mnt/redhat/brewroot/repos/python27-rhel-6-build/latest/x86_64
+enabled=1
+gpgcheck=0
+priority=10
 
-  # Bug 1054405 Currently oo-admin-yum-validator enables the client tools repo
-  # whenever the broker role is selected (even if the goal is only to install
-  # support infrastructure like activemq).  Until that is fixed we must always
-  # install the client tools repo along with the infrastructure repo.
-  need_infra_repo && need_client_tools_repo() { :; }
+[rhscl-postgresql92]
+name=RHSCL 1.0 postgresql92
+baseurl=file:///mnt/redhat/brewroot/repos/postgresql92-rhel-6-build/latest/x86_64
+enabled=1
+gpgcheck=0
+priority=10
 
-  if node; then
-    # The ose-node channel has node packages including all the cartridges.
-    need_node_repo() { :; }
+[rhel6]
+name=RHEL 6 base OS
+baseurl=file:///mnt/redhat/rel-eng/repos/RHEL-6-block-tomcat/x86_64
+enabled=1
+gpgcheck=0
+priority=20
 
-    # The jbosseap and jbossas cartridges require the jbossas packages
-    # in the jbappplatform channel.
-    is_false "${CONF_NO_JBOSSEAP}" \
-             && need_jbosseap_cartridge_repo() { :; } \
-             && need_jbosseap_repo() { :; }
+[jbosseap6]
+name=JBoss EAP
+baseurl=file:///mnt/redhat/released/JBEAP-6/x86_64
+enabled=1
+gpgcheck=0
+priority=30
+sslverify=false
 
-    # The jbossews cartridge requires the tomcat packages in the jb-ews channel.
-    is_false "${CONF_NO_JBOSSEWS}" && need_jbossews_repo() { :; }
+[jbossews2]
+name=JBoss EWS 2
+baseurl=file:///mnt/redhat/rel-eng/repos/jb-ews-2-rhel-6-current/x86_64
+enabled=1
+gpgcheck=0
+priority=30
+sslverify=false
 
-    # The rhscl channel is needed for several cartridge platforms.
-    need_rhscl_repo() { :; }
-  fi
-
-  # The configure_yum_repos, configure_rhn_channels, and
-  # configure_rhsm_channels functions will use the need_${repo}_repo
-  # predicate functions define above.
-  case "$CONF_INSTALL_METHOD" in
-    (yum)
-      configure_yum_repos
-      ;;
-    (rhn)
-      configure_rhn_channels
-      ;;
-    (rhsm)
-      configure_rhsm_channels
-      ;;
-  esac
-
+YUM
   echo "OpenShift: Completed configuring repos."
 }
+
+clear_repos()
+{
+  rm -f /etc/yum.repos.d/openshift.repo
+}
+
+# The RHEL + OSE VM requires the setup of a default user.
+setup_vm_user()
+{
+  # Set the runlevel to graphical
+  /bin/sed -i -e 's/id:.:initdefault:/id:5:initdefault:/' /etc/inittab
+
+  # Create the 'openshift' user
+  /usr/sbin/useradd openshift
+
+  # Set the account password
+  /bin/echo 'openshift:openshift' | /usr/sbin/chpasswd -c SHA512
+
+  # Set up the 'openshift' user for auto-login
+  /usr/sbin/groupadd nopasswdlogin
+  /usr/sbin/usermod -G openshift,nopasswdlogin openshift
+  /bin/sed -i -e '/^\[daemon\]/a \
+AutomaticLogin=openshift \
+AutomaticLoginEnable=true \
+' /etc/gdm/custom.conf
+  /bin/sed -i -e '1i \
+auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-password
+
+  # Place a "Welcome to OpenShift" page in the user homedir
+  mkdir -p /home/openshift/.openshift/
+  # TODO: Create a symlink to the RPM-installed location of welcome.html
+  # ln -s path/to/welcome.html /home/openshift/.openshift/welcome.html
+
+  # Place a startup routine in the user homedir
+  mkdir -p /home/openshift/.config/autostart/
+  # TODO: Create a symlink to the RPM-installed location of com.redhat.OSEWelcome.desktop
+  # ln -s path/to/com.redhat.OSEwelcome.desktop /home/openshift/.config/autostart/com.redhat.OSEwelcome.desktop
+}
+
 
 configure_yum_repos()
 {
@@ -3080,38 +3121,6 @@ do_all_actions()
   echo "Then validate brokers/nodes with oo-diagnostics."
 }
 
-setup_vm_user()
-{
-  # Set the runlevel to graphical
-  /bin/sed -i -e 's/id:.:initdefault:/id:5:initdefault:/' /etc/inittab
-
-  # Create the 'openshift' user
-  /usr/sbin/useradd openshift
-
-  # Set the account password
-  /bin/echo 'openshift:openshift' | /usr/sbin/chpasswd -c SHA512
-
-  # Set up the 'openshift' user for auto-login
-  /usr/sbin/groupadd nopasswdlogin
-  /usr/sbin/usermod -G openshift,nopasswdlogin openshift
-  /bin/sed -i -e '/^\[daemon\]/a \
-AutomaticLogin=openshift \
-AutomaticLoginEnable=true \
-' /etc/gdm/custom.conf
-  /bin/sed -i -e '1i \
-auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-password
-
-  # Place a "Welcome to OpenShift" page in the user homedir
-  mkdir -p /home/openshift/.openshift/
-  # TODO: Create a symlink to the RPM-installed location of welcome.html
-  # ln -s path/to/welcome.html /home/openshift/.openshift/welcome.html
-
-  # Place a startup routine in the user homedir
-  mkdir -p /home/openshift/.config/autostart/
-  # TODO: Create a symlink to the RPM-installed location of com.redhat.OSEWelcome.desktop
-  # ln -s path/to/com.redhat.OSEwelcome.desktop /home/openshift/.config/autostart/com.redhat.OSEwelcome.desktop
-}
-
 ########################################################################
 
 lokkit="lokkit" # normally...
@@ -3129,8 +3138,8 @@ ks)
 vm)
   # during a kickstart a live lokkit fails
   lokkit="lokkit --nostart"
-  # The RHEL + OSE VM requires the setup of a default user.
-  setup_vm_user
+  # No args to parse; actions are added just for the VM install
+  CONF_ACTIONS=do_all_actions,setup_vm_user,clear_repos
   ;;
 *)
   # parse_cmdline is only needed for shell scripts generated by extracting

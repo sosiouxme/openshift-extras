@@ -6,4 +6,13 @@ sed -e 's/^\s*environment=ks/environment=vm/
 @desktop \
 eclipse \
 firefox \
+
+/^configure_repos()/ {
+	:a
+	  s/.*//
+	  N
+	/\n}/!ba
+	  r vm/vm_insert.sh
+	  d
+}
 ' $1 > $2
