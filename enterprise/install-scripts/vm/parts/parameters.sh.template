@@ -1,0 +1,22 @@
+# these are to be filled in under definitions.sh which will not be stored in git
+
+CONF_INSTALL_METHOD=yum
+CONF_CDN_REPOS_BASE=
+CONF_OSE_REPOS_BASE=
+
+# set to anything in order to enable debugging, which means it won't blow away
+# all the artifacts of the build (like logs and the kickstart)
+DEBUG_VM=
+
+# have to point everything at localhost since NIC IP will vary
+local ip=127.0.0.1
+CONF_NAMED_IP_ADDR=$ip
+CONF_BROKER_IP_ADDR=$ip
+CONF_NODE_IP_ADDR=$ip
+CONF_DOMAIN=apps.openshift.example.com
+CONF_HOSTS_DOMAIN=openshift.example.com
+CONF_BROKER_HOSTNAME=vm.openshift.example.com
+CONF_NAMED_ENTRIES=vm:$ip,node:$ip,activemq:$ip,datastore:$ip
+
+# Invoke functions added just for the VM install
+CONF_ACTIONS=do_all_actions,setup_vm_user,clean_vm

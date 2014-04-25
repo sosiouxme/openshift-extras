@@ -1,7 +1,10 @@
-all: amazon/openshift-amz.sh generic/openshift.sh
+all: amazon/openshift-amz.sh generic/openshift.sh vm/openshift-vm.ks
 
 clean:
-	rm -f generic/openshift.ks amazon/openshift-amz.sh generic/openshift.sh
+	rm -f generic/openshift.ks amazon/openshift-amz.sh generic/openshift.sh vm/openshift-vm.ks
+
+vm/openshift-vm.ks: openshift.ks vm/to_rhel_vm vm/parts/*
+	vm/to_rhel_vm openshift.ks $@
 
 generic/openshift.sh: openshift.ks
 	generic/scriptify openshift.ks $@

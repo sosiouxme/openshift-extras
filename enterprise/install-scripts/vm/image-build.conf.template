@@ -1,0 +1,12 @@
+[image-build]
+version = 
+name = openshift-enterprise-test-image
+target = rhose-2.0-rhel-6-image
+arches = x86_64
+kickstart = openshift-vm.ks
+
+format = qcow2
+distro = RHEL-6.5
+install_tree = 
+repo = 
+

@@ -1,0 +1,43 @@
+#!/bin/bash
+
+if [ ! -f vm/parts/parameters.sh ]; then
+	echo "vm/parts/parameters.sh file is needed."
+	exit 1
+fi
+
+# Switch environment to 'vm' and insert VM packages and functions
+sed -e '
+/^\@server-policy/a \
+@desktop \
+eclipse \
+firefox \
+
+/^%post/ {
+	# insert generic content
+	r vm/parts/vm_insert.sh
+
+	# create functions to transfer contents of local files
+	a \
+create_welcome_file() {\
+	cat <<WELCOME_FILE > /home/openshift/.openshift/welcome.html
+	r vm/parts/welcome.html
+	a \
+WELCOME_FILE\
+}
+	a \
+create_desktop_file() {\
+	cat <<DESKTOP_FILE > /home/openshift/.config/autostart/com.redhat.OSEwelcome.desktop
+	r vm/parts/com.redhat.OSEwelcome.desktop
+	a \
+DESKTOP_FILE\
+}
+	# done inserting functions
+}
+
+s/^\s*environment=ks/environment=vm/
+
+/#VM_REPLACE#/ {
+	r vm/parts/parameters.sh
+	d
+}
+' $1 > $2
