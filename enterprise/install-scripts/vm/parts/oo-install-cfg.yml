@@ -1,0 +1,26 @@
+---
+Deployment:
+  DNS:
+    register_components: Y
+    app_domain: openshift.example.com
+    component_domain: openshift.example.com
+  Hosts:
+  - ip_addr:
+    ssh_host: localhost
+    state: completed
+    ip_interface: eth0
+    roles:
+    - msgserver
+    - dbserver
+    - broker
+    - node
+    user: openshift
+    host: vm.openshift.example.com
+Subscription:
+  type: none
+Vendor: OpenShift Origin Community
+Version: 0.0.1
+Name: OpenShift Installer Configuration
+Description: This is the configuration file for the OpenShift Installer.
+
+

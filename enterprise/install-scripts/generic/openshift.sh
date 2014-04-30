@@ -2325,8 +2325,8 @@ configure_wildcard_ssl_cert_on_node()
 XX
 SomeState
 SomeCity
-SomeOrganization
-SomeOrganizationalUnit
+OpenShift Enterprise default
+Temporary certificate
 *.${domain}
 root@${domain}
 EOF
@@ -2343,8 +2343,8 @@ configure_broker_ssl_cert()
 XX
 SomeState
 SomeCity
-SomeOrganization
-SomeOrganizationalUnit
+OpenShift Enterprise default
+Temporary certificate
 ${broker_hostname}
 root@${domain}
 EOF

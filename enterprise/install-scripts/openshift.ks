@@ -616,11 +616,11 @@ clearpart --all --initlabel
 firstboot --disable
 reboot
 
-part /boot --fstype=ext4 --size=500
+part /boot --fstype=ext4 --size=250
 part pv.253002 --grow --size=1
 volgroup vg_vm1 --pesize=4096 pv.253002
-logvol / --fstype=ext4 --name=lv_root --vgname=vg_vm1 --grow --size=1024 --maxsize=51200
-logvol swap --name=lv_swap --vgname=vg_vm1 --grow --size=2016 --maxsize=4032
+logvol / --fstype=ext4 --name=lv_root --vgname=vg_vm1 --grow --size=7168 --maxsize=51200
+logvol swap --name=lv_swap --vgname=vg_vm1 --grow --size=2016 --maxsize=2016
 
 %packages
 @core
@@ -2371,8 +2371,8 @@ configure_wildcard_ssl_cert_on_node()
 XX
 SomeState
 SomeCity
-SomeOrganization
-SomeOrganizationalUnit
+OpenShift Enterprise default
+Temporary certificate
 *.${domain}
 root@${domain}
 EOF
@@ -2389,8 +2389,8 @@ configure_broker_ssl_cert()
 XX
 SomeState
 SomeCity
-SomeOrganization
-SomeOrganizationalUnit
+OpenShift Enterprise default
+Temporary certificate
 ${broker_hostname}
 root@${domain}
 EOF

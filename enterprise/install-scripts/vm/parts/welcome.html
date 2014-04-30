@@ -26,9 +26,9 @@
           <p>Click below to view the OpenShift Enterprise web console. You will need these login credentials:</p>
           <ul>
             <li>Username: <code>demo</code>
-            <li>Password: <code>changeme</code>
+            <li>Password: <code>openshift</code>
           </ul>
-          <a class="btn btn-primary" target="_blank" href="https://localhost/">Open the Web Console</a>
+          <a class="btn btn-primary" target="_blank" href="https://vm.openshift.example.com/">Open the Web Console</a>
         </div>
       </div>
     </div>
@@ -39,7 +39,30 @@
         </div>
         <div class="panel-body">
           <p>Open a terminal on this system and run the following command to get started with <code>rhc</code>, the command-line utility for developing apps with OpenShift Enterprise:</p>
-          <p><code>rhc setup --server localhost -l demo -p changeme</code></p>
+          <p><code>rhc setup --server localhost -l demo -p openshift</code></p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-12">
+      <div class="panel panel-default">
+        <div class="panel-heading">
+          <h3 class="panel-title">Securing this VM</h3>
+        </div>
+        <div class="panel-body">
+          <p>This host is pre-configured with a host login and OpenShift user for ease of use. If it will be available on any network, the default passwords should be changed as follows.</p>
+	  <p>You can change the password for the host "openshift" login from the terminal window with the <code>passwd</code> command.</p>
+	  <pre>
+$ passwd
+(enter the current password, "openshift")
+(enter your new password twice)
+	  </pre>
+	  <p>You can change the password for the OpenShift "demo" user (or add other logins) from the terminal window with the <code>htpasswd</code> command.</p>
+	  <pre>
+$ sudo htpasswd /etc/openshift/htpasswd demo
+(enter your new password twice)
+	  </pre>
         </div>
       </div>
     </div>

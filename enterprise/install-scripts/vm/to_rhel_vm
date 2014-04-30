@@ -5,14 +5,20 @@ if [ ! -f vm/parts/parameters.sh ]; then
 	exit 1
 fi
 
+#TODO: don't even let root login
+
 # Switch environment to 'vm' and insert VM packages and functions
 sed -e '
-/^\@server-policy/a \
+/^skipx/ d
+
+/^%packages/a \
 @desktop \
-eclipse \
 firefox \
+java-1.7.0-openjdk
 
 /^%post/ {
+	# insert parameter definitions
+	r vm/parts/parameters.sh
 	# insert generic content
 	r vm/parts/vm_insert.sh
 
@@ -25,19 +31,31 @@ create_welcome_file() {\
 WELCOME_FILE\
 }
 	a \
-create_desktop_file() {\
+create_desktop_files() {\
 	cat <<DESKTOP_FILE > /home/openshift/.config/autostart/com.redhat.OSEwelcome.desktop
 	r vm/parts/com.redhat.OSEwelcome.desktop
 	a \
 DESKTOP_FILE\
+	cat <<DESKTOP_FILE > /home/openshift/.config/autostart/com.redhat.terminal.desktop
+	r vm/parts/com.redhat.terminal.desktop
+	a \
+DESKTOP_FILE\
 }
+	a \
+create_install_files() {\
+	cat <<INSTALL_FILE > /home/openshift/jbds-install.xml
+	r vm/parts/jbds-install.xml
+	a \
+INSTALL_FILE\
+	cat <<INSTALL_FILE > /home/openshift/.openshift/oo-install-cfg.yml
+	r vm/parts/oo-install-cfg.yml
+	a \
+INSTALL_FILE\
+}
+
 	# done inserting functions
 }
 
 s/^\s*environment=ks/environment=vm/
 
-/#VM_REPLACE#/ {
-	r vm/parts/parameters.sh
-	d
-}
 ' $1 > $2
