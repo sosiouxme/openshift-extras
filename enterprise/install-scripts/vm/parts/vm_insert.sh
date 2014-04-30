@@ -69,6 +69,8 @@ INSECURE
 
 setup_vm_user()
 {
+
+
   # Create the 'openshift' user
   /usr/sbin/useradd openshift
   # Set the account password
@@ -84,18 +86,13 @@ AutomaticLoginEnable=true \
 auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-password
   # add the user to sudo
   echo "openshift ALL=(ALL)  NOPASSWD: ALL" > /etc/sudoers.d/openshift
+  # Disable locking the user desktop for inactivity
+  su - openshift -c 'gconftool-2 -s /apps/gnome-screensaver/idle_activation_enabled --type=bool false'
   # TODO: automatically log the user in
-  # TODO: disable screen timeout
-
-  # Place a "Welcome to OpenShift" page in the user homedir
-  mkdir -p /home/openshift/.openshift/
-  create_welcome_file
-
-  # Place a startup routine in the user homedir
   # TODO: get rid of email icon, add terminal icon
-  mkdir -p /home/openshift/.config/autostart/
-  create_desktop_files
-  create_install_files
+
+  # fabricated function to lay down files from the parts/ dir
+  create_user_files
 
   # accept the server certificate in Firefox
   # TODO: this does nothing until Firefox has been run to create a profile
@@ -107,10 +104,8 @@ auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-pas
 
   # install oo-install and default config
   wget $OO_INSTALL_URL -O /home/openshift/oo-install.zip --no-check-certificate
-  su - openshift -c 'unzip oo-install.zip'
-
-  # JBDS complains less if this exists first
-  mkdir /home/openshift/git
+  su - openshift -c 'unzip oo-install.zip -d oo-install'
+  rm /home/openshift/oo-install.zip 
 
   # fix ownership
   chown -R openshift /home/openshift
@@ -118,7 +113,7 @@ auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-pas
   # install JBoss Developer Suite
   wget $JBDS_URL -O /home/openshift/jbds.jar
   # https://access.redhat.com/site/solutions/44667 for auto install
-  su - openshift -c 'java -jar jbds.jar jbds-install.xml'
+  su - openshift -c 'java -jar jbds.jar jbdevstudio/jbds-install.xml'
   rm /home/openshift/jbds.jar
 }
 

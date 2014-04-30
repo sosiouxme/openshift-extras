@@ -19,19 +19,23 @@ java-1.7.0-openjdk
 /^%post/ {
 	# insert parameter definitions
 	r vm/parts/parameters.sh
+
 	# insert generic content
 	r vm/parts/vm_insert.sh
 
-	# create functions to transfer contents of local files
+	# fabricate function to lay down contents of parts/ files
 	a \
-create_welcome_file() {\
+create_user_files() {\
+        mkdir -p /home/openshift/.openshift/ \
+        mkdir -p /home/openshift/.config/autostart/ \
+        mkdir -p /home/openshift/jbdevstudio/ \
+        mkdir -p /home/openshift/git/ \
 	cat <<WELCOME_FILE > /home/openshift/.openshift/welcome.html
 	r vm/parts/welcome.html
 	a \
 WELCOME_FILE\
-}
+
 	a \
-create_desktop_files() {\
 	cat <<DESKTOP_FILE > /home/openshift/.config/autostart/com.redhat.OSEwelcome.desktop
 	r vm/parts/com.redhat.OSEwelcome.desktop
 	a \
@@ -40,10 +44,9 @@ DESKTOP_FILE\
 	r vm/parts/com.redhat.terminal.desktop
 	a \
 DESKTOP_FILE\
-}
+
 	a \
-create_install_files() {\
-	cat <<INSTALL_FILE > /home/openshift/jbds-install.xml
+	cat <<INSTALL_FILE > /home/openshift/jbdevstudio/jbds-install.xml
 	r vm/parts/jbds-install.xml
 	a \
 INSTALL_FILE\
