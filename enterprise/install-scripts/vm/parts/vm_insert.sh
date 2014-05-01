@@ -11,11 +11,12 @@ setup_vm_host()
 {
   # create a hook that updates the DNS record when our IP changes
   local name=${broker_hostname%$hosts_domain}
-  cat <<HOOK > /etc/dhcp/dhclient-up-eth0-hooks
-    if [ "\$new_ip_address"x != x ]; then
+  cat <<HOOK > /etc/dhcp/dhclient-eth0-up-hooks
+    if [[ "\$new_ip_address"x != x ]]; then
       /usr/sbin/rndc freeze ${hosts_domain}
-      sed -i -e "s/^vm\s\+\(IN \)\?A\s\+.*/vm A $new_ip_address/" /var/named/dynamic/${hosts_domain}.db
+      sed -i -e "s/^vm\s\+\(IN \)\?A\s\+.*/vm A \$new_ip_address/" /var/named/dynamic/${hosts_domain}.db
       /usr/sbin/rndc thaw ${hosts_domain}
+      sed -i -e "s/^PUBLIC_IP=.*/PUBLIC_IP=\$new_ip_address/" /etc/openshift/node.conf
     fi
 HOOK
   chmod +x /etc/dhcp/dhclient-eth0-up-hooks
@@ -25,6 +26,7 @@ HOOK
 module dhcp-update-named 1.0;
 
 require {
+        type etc_t;
         type dnssec_t;
         type ndc_exec_t;
         type named_zone_t;
@@ -34,6 +36,8 @@ require {
         class file { rename execute setattr read create ioctl execute_no_trans write getattr unlink open };
 }
 
+# allow to edit node.conf
+allow dhcpc_t etc_t:file { write rename create unlink setattr };
 # allow to read rndc key
 allow dhcpc_t dnssec_t:file { read getattr open };
 # allow to run rndc
@@ -61,26 +65,29 @@ insecure=true
 INSECURE
 
   # accept the server certificate in Firefox
-  certFile='/etc/pki/tls/certs/localhost.crt'
-  certName='OpenShift Enterprise VM'
-  certutil -A -n "${certName}" -t "TCu,Cuw,Tuw" -i ${certFile} -d /etc/pki/nssdb/
+  #certFile='/etc/pki/tls/certs/localhost.crt'
+  #certName='OpenShift Enterprise VM'
+  #certutil -A -n "${certName}" -t "TCu,Cuw,Tuw" -i ${certFile} -d /etc/pki/nssdb/
 
+  # no need for root to login with a password.
+  /usr/bin/passwd -l root
 }
 
 setup_vm_user()
 {
-
-
   # Create the 'openshift' user
   /usr/sbin/useradd openshift
-  # Set the account password
   /bin/echo 'openshift:openshift' | /usr/sbin/chpasswd -c SHA512
   # Set up the 'openshift' user for auto-login
   /usr/sbin/groupadd nopasswdlogin
   /usr/sbin/usermod -G openshift,nopasswdlogin openshift
-  /bin/sed -i -e '/^\[daemon\]/a \
+  /bin/sed -i -e '
+/^\[daemon\]/a \
 AutomaticLogin=openshift \
-AutomaticLoginEnable=true \
+AutomaticLoginEnable=true
+/^\[greeter\]/a \
+IncludeAll=false \
+Include=openshift
 ' /etc/gdm/custom.conf
   /bin/sed -i -e '1i \
 auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-password
@@ -103,18 +110,17 @@ auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-pas
   done
 
   # install oo-install and default config
-  wget $OO_INSTALL_URL -O /home/openshift/oo-install.zip --no-check-certificate
+  wget $OO_INSTALL_URL -O /home/openshift/oo-install.zip --no-check-certificate -nv
   su - openshift -c 'unzip oo-install.zip -d oo-install'
   rm /home/openshift/oo-install.zip 
 
   # fix ownership
-  chown -R openshift /home/openshift
+  chown -R openshift:openshift /home/openshift
 
   # install JBoss Developer Suite
-  wget $JBDS_URL -O /home/openshift/jbds.jar
+  wget $JBDS_URL -O /home/openshift/jbds.jar --no-check-certificate -nv
   # https://access.redhat.com/site/solutions/44667 for auto install
-  su - openshift -c 'java -jar jbds.jar jbdevstudio/jbds-install.xml'
-  rm /home/openshift/jbds.jar
+  su - openshift -c 'java -jar jbds.jar jbdevstudio/jbds-install.xml' && rm /home/openshift/jbds.jar
 }
 
 clean_vm()
@@ -129,6 +135,6 @@ clean_vm()
   fi
   # clean even when debugging
   rm /etc/udev/rules.d/70-persistent-net.rules  # keep specific NIC from being recorded
-  sed -i -e '/^HWADDR/ d' /etc/sysconfig/network-scripts/ifup-eth0 # keep HWADDR from being recorded
+  sed -i -e '/^HWADDR/ d' /etc/sysconfig/network-scripts/ifcfg-eth0 # keep HWADDR from being recorded
 }
 

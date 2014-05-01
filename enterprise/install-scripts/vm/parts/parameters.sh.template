@@ -3,6 +3,8 @@
 CONF_INSTALL_METHOD=yum
 CONF_CDN_REPO_BASE=
 CONF_OSE_REPO_BASE=
+JBDS_URL=
+OO_INSTALL_URL=
 
 # set in order to enable debugging, which means clean_vm won't blow away
 # all the artifacts of the build (like logs and the kickstart)
@@ -16,7 +18,7 @@ CONF_NODE_IP_ADDR=$ip
 CONF_DOMAIN=openshift.example.com
 # include hosts in same domain so the wildcard cert works
 CONF_BROKER_HOSTNAME=vm.openshift.example.com
-CONF_NAMED_ENTRIES=vm:$ip,node:$ip,activemq:$ip,datastore:$ip
+CONF_NAMED_ENTRIES=vm:$ip,activemq:$ip,datastore:$ip
 
 CONF_OPENSHIFT_PASSWORD1="openshift"   # demo/openshift
 
