@@ -82,9 +82,15 @@ setup_vm_user()
   /usr/sbin/groupadd nopasswdlogin
   /usr/sbin/usermod -G openshift,nopasswdlogin openshift
   /bin/sed -i -e '
-/^\[daemon\]/a \
-AutomaticLogin=openshift \
-AutomaticLoginEnable=true
+# Trying to enable autologin for gdm => openshift fails, either
+# by simply not logging in, or by bringing up a black screen. Symptoms
+# in the latter case are similar to https://bugzilla.redhat.com/show_bug.cgi?id=629328
+# Perhaps is related to pam issues.
+#/^\[daemon\]/a \
+#AutomaticLogin=openshift \
+#AutomaticLoginEnable=true
+#
+# We do not want gear users to show up in the greeter
 /^\[greeter\]/a \
 IncludeAll=false \
 Include=openshift
