@@ -55,6 +55,14 @@ POLICY
     rm dhcp-update-named.*
   popd
 
+  # Set up PAM so that console users can restart services without polyinstantiation
+  for file in /etc/pam.d/{newrole,runuser,sshd,su,sudo,system-auth}; do
+    cat <<PAMAUTH >> $file
+session    [default=1 success=ignore]  pam_succeed_if.so quiet user in root:apache:mongodb:activemq
+session    required                    pam_namespace.so  unmnt_only
+PAMAUTH
+  done
+
   # Set the runlevel to graphical
   /bin/sed -i -e 's/id:.:initdefault:/id:5:initdefault:/' /etc/inittab
 
@@ -64,13 +72,14 @@ POLICY
 insecure=true
 INSECURE
 
-  # accept the server certificate in Firefox
-  #certFile='/etc/pki/tls/certs/localhost.crt'
-  #certName='OpenShift Enterprise VM'
-  #certutil -A -n "${certName}" -t "TCu,Cuw,Tuw" -i ${certFile} -d /etc/pki/nssdb/
-
   # no need for root to login with a password.
   /usr/bin/passwd -l root
+
+  # For some reason, these services fail to start the first time after boot,
+  # with no logs to indicate why. They actually succeed thereafter.
+  # Try priming them during the kickstart.
+  service openshift-broker start
+  service openshift-console start
 }
 
 setup_vm_user()
@@ -108,12 +117,22 @@ auth sufficient pam_succeed_if.so user ingroup nopasswdlogin' /etc/pam.d/gdm-pas
   create_user_files
 
   # accept the server certificate in Firefox
-  # TODO: this does nothing until Firefox has been run to create a profile
-  certFile='/etc/pki/tls/certs/localhost.crt'
-  certName='OpenShift Enterprise VM'
-  for db in $(find  /home/openshift/.mozilla* -name "cert8.db"); do
-    certutil -A -n "${certName}" -t "TCu,Cuw,Tuw" -i ${certFile} -d "$(dirname ${db})"
-  done
+  mkdir -p /home/openshift/.mozilla/firefox
+  pushd /home/openshift/.mozilla/firefox
+    local ffprof=`mktemp -d XXXXXXXX.default`
+    cat <<PROFILES > profiles.ini
+[General]
+StartWithLastProfile=1
+
+[Profile0]
+Name=default
+IsRelative=1
+Path=$ffprof
+PROFILES
+    certName='OpenShift Enterprise VM'
+    certFile='/etc/pki/tls/certs/localhost.crt'
+    certutil -A -n "$certName" -t "TCu,Cuw,Tuw" -i "$certFile" -d "$ffprof"
+  popd
 
   # install oo-install and default config
   wget $OO_INSTALL_URL -O /home/openshift/oo-install.zip --no-check-certificate -nv
@@ -137,6 +156,8 @@ clean_vm()
     rm -f /etc/yum.repos.d/*
     yum clean all
     rm -f /root/anaconda*
+    rm -f /var/log/anaconda*
+    rm -f /tmp/ks*
     #virt-sysprep --enable abrt-data,bash-history,dhcp-client-state,machine-id,mail-spool,pacct-log,smolt-uuid,ssh-hostkeys,sssd-db-log,udev-persistent-net,utmp,net-hwaddr
   fi
   # clean even when debugging
