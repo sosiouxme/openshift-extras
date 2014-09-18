@@ -219,7 +219,7 @@ def run_on_host(host, step)
   filetext = @env_map.map { |env,val| "export #{env}=#{shellescape(val)}\n" }.join ""
   filetext << "rm -f $0\n" unless @keep_assets
   # note: since we are cutting WAY down on output with grep, line-buffer it.
-  filetext << "/tmp/openshift.sh |& tee -a #{logfile} | stdbuf -oL -eL grep -i '^OpenShift:'\n"
+  filetext << "bash /tmp/openshift.sh |& tee -a #{logfile} | stdbuf -oL -eL grep -i '^OpenShift:'\n"
   filetext << "rm -f /tmp/openshift.sh\n" unless @keep_assets
   filetext << "exit\n"
   # Save it out so we can copy it to the target
@@ -232,13 +232,12 @@ def run_on_host(host, step)
   if host['ssh_host'] == 'localhost'
     # relocate launcher file
     system "cp #{File.dirname(__FILE__)}/openshift.sh /tmp/"
-    system "chmod u+x #{localfile.path} /tmp/openshift.sh"
 
     puts "Executing deployment script on localhost (#{host['host']}).\n"
     puts "  You can watch the full log with:\n"
     puts "  #{sudo}tail -f #{logfile}"
     # Run the launcher
-    result = @deployment.get_host_instance_by_hostname(host['host']).local_exec!("bash -l -c '#{sudo}#{localfile.path}' 2>&1", true)
+    result = @deployment.get_host_instance_by_hostname(host['host']).local_exec!("bash -l -c '#{sudo}bash #{localfile.path}' 2>&1", true)
     script_output+=result[:stdout]
     result[:success] or return {
       :success => false,
@@ -266,7 +265,7 @@ def run_on_host(host, step)
     puts "Executing deployment script on #{host['ssh_host']} (#{host['host']}).\n"
     puts "  You can watch the full log with:\n"
     puts "  #{@ssh_cmd} #{ssh_target} '#{sudo}tail -f #{logfile}'\n"
-    result = @deployment.get_host_instance_by_hostname(host['host']).ssh_exec!("#{sudo}chmod u+x /tmp/#{hostfile} /tmp/openshift.sh \&\& #{sudo}/tmp/#{hostfile} 2>&1", true)
+    result = @deployment.get_host_instance_by_hostname(host['host']).ssh_exec!("#{sudo}bash /tmp/#{hostfile} 2>&1", true)
     script_output+=result[:stdout]
     result[:exit_code] == 0 or return {
       :success => false,
