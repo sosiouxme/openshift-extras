@@ -15,7 +15,7 @@ INSTALL_STATES = %w[ new prepared installed completed completed completed comple
 INSTALL_ACTIONS = %w[ .
                       init_message,validate_preflight,configure_repos
                       install_rpms
-                      configure_host,configure_openshift,restart_services
+                      configure_host,configure_openshift
                       register_named_entries
                       post_deploy
                       run_diagnostics

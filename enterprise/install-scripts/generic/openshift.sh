@@ -3899,6 +3899,7 @@ restart_services()
   # ensure openshift facts are updated
   node && /etc/cron.minutely/openshift-facts
 
+  RESTART_NEEDED=false
   echo "OpenShift: Completed restarting services."
 }
 
