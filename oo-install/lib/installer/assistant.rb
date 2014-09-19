@@ -127,7 +127,7 @@ module Installer
     def urls_cache
       @urls_cache ||= parse_config_file('urls', url_file_path).first
     end
- 
+
     def ui_title
       title = translate(is_origin_vm? ? :vm_title : :title)
       if not version_text.nil? and not version_text.empty?
@@ -288,7 +288,7 @@ module Installer
         say "It looks like you are running oo-install for the first time on a new system. The installer will guide you through the process of defining your OpenShift deployment."
       end
       if not use_origin_vm_as_broker
-        broker_question = is_origin_vm? ? 'Is there already a running Broker in the OpenShift system that you want to deploy?' : 'First things first: do you already have a running Broker?'
+        broker_question = is_origin_vm? ? 'Is there already a running Broker in the OpenShift system that you want to deploy?' : 'Have you already installed an OpenShift broker that should be part of this deployment?'
         has_running_broker = concur("\n#{broker_question}")
       else
         has_running_broker = true
@@ -299,7 +299,7 @@ module Installer
         deployment.add_host_instance! Installer::HostInstance.new(vm_hash)
         say "\nOkay. This VM will be reconfigured as the Broker for a larger deployment."
       elsif has_running_broker
-        say "\nOkay. We will collect information about your Broker in a moment."
+        say "\nOkay. We will collect information about your existing Broker in a moment."
       else
         say "\nOkay. We will gather information to install a Broker in a moment."
       end
@@ -322,7 +322,7 @@ module Installer
             next
           end
         else
-          instance_exists = role == :broker ? has_running_broker : concur("Do you already have a running #{role_item}?")
+          instance_exists = role == :broker ? has_running_broker : concur("Have you already installed an OpenShift #{role_item} that should be part of this deployment?")
         end
         if instance_exists
           say "\nOkay. I'm going to need you to tell me about the host where the #{role_item} is installed."
@@ -949,7 +949,7 @@ module Installer
 
     def edit_service_user_passwords host_instance, newrole=nil
       prompt_user_pass = false
- 
+
       if newrole.nil?
         qtext = "Do you want to specify usernames and passwords for services configured on this host? Otherwise default usernames and randomized passwords will be configured."
       else
