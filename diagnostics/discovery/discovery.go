@@ -19,7 +19,7 @@ func Discover() *Environment {
   env.Path4osc = findExecFor("osc")
   env.Path4openshift = findExecFor("openshift")
   if env.Path4osc != "" {
-    log.Info(fmt.Sprintf("Found osc at %v\n", env.Path4osc))
+    log.Info(fmt.Sprintf("Found osc at %v", env.Path4osc))
   }
   return env
 }
@@ -29,10 +29,11 @@ func findExecFor(cmd string) string {
   if err == nil {
     return path
   }
+	// TODO: if windows...
   path, err = exec.LookPath(cmd + ".exe")
   if err == nil {
     return path
   }
-  log.Warn(fmt.Sprintf("Could not find %v\n", cmd))
+  log.Warn(fmt.Sprintf("Could not find %v", cmd))
   return ""
 }

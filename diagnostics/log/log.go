@@ -2,23 +2,26 @@ package log
 
 import "fmt"
 
-type Level int
-const (
-  ErrorLevel Level = iota
-  WarnLevel
-  InfoLevel
-  DebugLevel
+type Level struct {
+  Level int
+  Prefix string
+}
+var (
+  ErrorLevel = Level{0, "ERROR: "}
+  WarnLevel = Level{1, "WARN: "}
+  InfoLevel = Level{2, "Info: "}
+  DebugLevel = Level{3, "debug: "}
 )
 
-var logLevel Level = InfoLevel // default
+var current Level = InfoLevel // default
 
 func SetLevel(l Level) {
-  logLevel = l
+  current = l
 }
 
 func log(l Level, msg string) {
-  if l <= logLevel {
-    fmt.Println(msg)
+  if l.Level <= current.Level {
+    fmt.Println(l.Prefix + msg)
   }
 }
 
