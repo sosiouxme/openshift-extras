@@ -15,8 +15,17 @@ var (
 
 var current Level = InfoLevel // default
 
-func SetLevel(l Level) {
-  current = l
+func SetLevel(l int) {
+  switch {
+  case l == 0:
+    current = ErrorLevel
+  case l == 1:
+    current = WarnLevel
+  case l == 2:
+    current = InfoLevel
+  default:
+    current = DebugLevel
+  }
 }
 
 func log(l Level, msg string) {
