@@ -1,8 +1,8 @@
 package main
 
 import (
-	"os"
 	"github.com/openshift/openshift-extras/diagnostics/cmd"
+	"os"
 )
 
 func main() {

@@ -1,8 +1,8 @@
 package flags
 
 type Flags struct {
-	LogLevel int
-	OpenshiftPath string
-	OscPath string
+	LogLevel       int
+	OpenshiftPath  string
+	OscPath        string
 	KubeconfigPath string
 }

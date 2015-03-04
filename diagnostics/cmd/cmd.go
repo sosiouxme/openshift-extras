@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
+	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/discovery"
 	"github.com/openshift/openshift-extras/diagnostics/log"
-	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
+	"github.com/spf13/cobra"
 )
-
 
 const longDescription = `
 OpenShift Diagnostics
@@ -29,7 +28,7 @@ func NewCommand() *cobra.Command {
 		Short: "This utility helps you understand and troubleshoot OpenShift v3.",
 		Long:  longDescription,
 		Run: func(c *cobra.Command, args []string) {
-	    log.SetLevel(f.LogLevel)
+			log.SetLevel(f.LogLevel)
 			c.SetOutput(os.Stdout)
 			discovery.Run(&f)
 		},
