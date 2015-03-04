@@ -7,6 +7,9 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/types"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 )
 
 func Run(f *flags.Flags) *types.Environment {
@@ -17,33 +20,58 @@ func Run(f *flags.Flags) *types.Environment {
 }
 
 func osDiscovery(env *types.Environment) {
-	//TODO: determine what we need to know about the OS
+	env.OS = runtime.GOOS
+	if env.OS == "linux" {
+		if _, err := exec.LookPath("systemctl"); err == nil {
+			env.HasSystemd = true
+		}
+		if _, err := exec.LookPath("/bin/bash"); err == nil {
+			env.HasBash = true
+		}
+	}
 }
 
 func execDiscovery(env *types.Environment) (err error) {
-	log.Info("Searching for executables in path: " + os.Getenv("PATH")) //TODO for non-Linux OS
-	env.Path4osc = findExecAndLog("osc")
-	if env.Path4osc != "" {
-		env.Version4osc, err = getExecVersion(env.Path4osc)
+	log.Debug("Searching for executables in path:\n  " + strings.Join(filepath.SplitList(os.Getenv("PATH")), "\n  ")) //TODO for non-Linux OS
+	env.OscPath = findExecAndLog("osc", env, env.Flags.OscPath)
+	if env.OscPath != "" {
+		env.OscVersion, err = getExecVersion(env.OscPath)
 	}
-	env.Path4openshift = findExecAndLog("openshift")
-	if env.Path4openshift != "" {
-		env.Version4openshift, err = getExecVersion(env.Path4openshift)
+	env.OpenshiftPath = findExecAndLog("openshift", env, env.Flags.OpenshiftPath)
+	if env.OpenshiftPath != "" {
+		env.OpenshiftVersion, err = getExecVersion(env.OpenshiftPath)
 	}
-	if env.Version4openshift.NonZero() && env.Version4osc.NonZero() && !env.Version4openshift.Eq(env.Version4osc) {
-		log.Warnf("'openshift' version %#v does not match 'osc' version %#v; update or remove the lower version", env.Version4openshift, env.Version4osc)
+	if env.OpenshiftVersion.NonZero() && env.OscVersion.NonZero() && !env.OpenshiftVersion.Eq(env.OscVersion) {
+		log.Warnf("'openshift' version %#v does not match 'osc' version %#v; update or remove the lower version", env.OpenshiftVersion, env.OscVersion)
 	}
 	return err
 }
 
-func findExecAndLog(cmd string) string {
-	path := findExecFor(cmd)
-	if path == "" {
-		log.Warnf("No %v executable was found in your path", cmd)
-	} else {
-		log.Infof("Found %v at %v", cmd, path)
+func findExecAndLog(cmd string, env *types.Environment, pathflag string) string {
+	if pathflag != "" { // look for it where the user said it would be
+		if filepath.Base(pathflag) != cmd {
+			log.Errorf(`
+You specified that '%s' should be found at:
+  %s
+but that file has the wrong name. The file name determines available functionality and must match.`, cmd, pathflag)
+		} else if _, err := exec.LookPath(pathflag); err == nil {
+			log.Infof("Specified '%v' is executable at %v", cmd, pathflag)
+			return pathflag
+		} else if _, err := os.Stat(pathflag); os.IsNotExist(err) {
+			log.Errorf("You specified that '%s' should be at %s\nbut that file does not exist.", cmd, pathflag)
+		} else {
+			log.Errorf("You specified that '%s' should be at %s\nbut that file is not executable.", cmd, pathflag)
+		}
+	} else { // look for it in the path
+		path := findExecFor(cmd)
+		if path == "" {
+			log.Warnf("No '%v' executable was found in your path", cmd)
+		} else {
+			log.Infof("Found '%v' at %v", cmd, path)
+			return path
+		}
 	}
-	return path
+	return ""
 }
 
 func findExecFor(cmd string) string {
@@ -51,10 +79,11 @@ func findExecFor(cmd string) string {
 	if err == nil {
 		return path
 	}
-	// TODO: if windows...
-	path, err = exec.LookPath(cmd + ".exe")
-	if err == nil {
-		return path
+	if runtime.GOOS == "windows" {
+		path, err = exec.LookPath(cmd + ".exe")
+		if err == nil {
+			return path
+		}
 	}
 	return ""
 }

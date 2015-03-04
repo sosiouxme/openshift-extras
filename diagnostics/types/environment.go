@@ -5,14 +5,15 @@ import (
 )
 
 type Environment struct {
-	OS          string // "Linux / Windows / Mac"
-	HasSystemd  bool
-	HasBash     bool
-	Path4osc    string
-	Version4osc Version
+	OS         string // "linux / windows / darwin" http://golang.org/pkg/runtime/#GOOS
+	HasSystemd bool
+	HasBash    bool
 
-	Path4openshift    string
-	Version4openshift Version
-	Path4kubeconfig   string
-	Flags             *flags.Flags
+	OscPath          string
+	OscVersion       Version
+	OpenshiftPath    string
+	OpenshiftVersion Version
+	KubeconfigPath   string
+
+	Flags *flags.Flags
 }

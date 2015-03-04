@@ -72,9 +72,9 @@ func Debugf(msg string, a ...interface{}) {
 }
 
 func LimitLines(msg string, n int) string {
-	lines := strings.SplitN(msg, "\n", n)
-	if len(lines) == n {
-		lines[n-1] = "[...]"
+	lines := strings.SplitN(msg, "\n", n+1)
+	if len(lines) == n+1 {
+		lines[n] = "[...]"
 	}
 	return strings.Join(lines, "\n")
 }
