@@ -14,6 +14,7 @@ type Environment struct {
 	OpenshiftPath    string
 	OpenshiftVersion Version
 	KubeconfigPath   string
+	Kubeconfig       *map[string]interface{}
 
 	Flags *flags.Flags
 }

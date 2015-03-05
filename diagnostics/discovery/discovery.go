@@ -5,6 +5,8 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
+	"gopkg.in/yaml.v2"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,13 +14,18 @@ import (
 	"strings"
 )
 
+// ----------------------------------------------------------
+// Examine system and return findings in an Environment
 func Run(f *flags.Flags) *types.Environment {
 	env := &types.Environment{Flags: f}
 	osDiscovery(env)
 	execDiscovery(env)
+	readKubeconfig(env)
 	return env
 }
 
+// ----------------------------------------------------------
+// Determine what we need to about the OS
 func osDiscovery(env *types.Environment) {
 	env.OS = runtime.GOOS
 	if env.OS == "linux" {
@@ -31,6 +38,8 @@ func osDiscovery(env *types.Environment) {
 	}
 }
 
+// ----------------------------------------------------------
+// Look for 'osc' and 'openshift' executables
 func execDiscovery(env *types.Environment) (err error) {
 	log.Debug("Searching for executables in path:\n  " + strings.Join(filepath.SplitList(os.Getenv("PATH")), "\n  ")) //TODO for non-Linux OS
 	env.OscPath = findExecAndLog("osc", env, env.Flags.OscPath)
@@ -47,6 +56,8 @@ func execDiscovery(env *types.Environment) (err error) {
 	return err
 }
 
+// ----------------------------------------------------------
+// Look for a specific executable and log what happens
 func findExecAndLog(cmd string, env *types.Environment, pathflag string) string {
 	if pathflag != "" { // look for it where the user said it would be
 		if filepath.Base(pathflag) != cmd {
@@ -74,6 +85,8 @@ but that file has the wrong name. The file name determines available functionali
 	return ""
 }
 
+// ----------------------------------------------------------
+// Look in the path for an executable
 func findExecFor(cmd string) string {
 	path, err := exec.LookPath(cmd)
 	if err == nil {
@@ -88,6 +101,8 @@ func findExecFor(cmd string) string {
 	return ""
 }
 
+// ----------------------------------------------------------
+// Invoke executable's "version" command to determine version
 func getExecVersion(path string) (version types.Version, err error) {
 	cmd := exec.Command(path, "version")
 	var out []byte
@@ -121,4 +136,70 @@ Output was:
 	}
 
 	return version, err
+}
+
+/* ----------------------------------------------------------
+Look for the .kubeconfig and read it in.
+We are not going to attempt merging multiple files as is
+possible with the actual client; most users will just be
+dealing with a single kubeconfig, and we will be replacing
+all of that with our own config soon enough.
+*/
+func readKubeconfig(env *types.Environment) {
+	var file *os.File
+	path := env.Flags.KubeconfigPath
+	if path != "" {
+		file = openKubeconfig(path, fmt.Sprintf("-c specified that .kubeconfig should be at %s\n", path))
+		// user specified intended path, don't keep looking if it isn't there.
+	} else {
+		path = os.Getenv("KUBECONFIG")
+		if path != "" {
+			file = openKubeconfig(path, fmt.Sprintf("$KUBECONFIG specified that .kubeconfig should be at %s\n", path))
+			// $KUBECONFIG specified intended path, don't keep looking if it isn't there
+		} else {
+			// look for it in `pwd`
+			path, _ = os.Getwd()
+			if file = openKubeconfig(path+"/.kubeconfig", ""); file == nil {
+				// not found, look for it in $HOME
+				file = openKubeconfig(os.Getenv("HOME")+"/.kubeconfig", "")
+			}
+		}
+	}
+	if file == nil {
+		log.Warn("No .kubeconfig read; default config expects OpenShift master at https://localhost:8443/")
+	} else {
+		defer file.Close()
+		if buffer, err := ioutil.ReadAll(file); err != nil {
+			log.Errorf("Unexpected error while reading .kubeconfig file (%s): %#v", file.Name(), err)
+		} else {
+			config := make(map[string]interface{})
+			err := yaml.Unmarshal(buffer, &config)
+			if err != nil {
+				log.Errorf("Error reading YAML from kubeconfig:\n%#v", err)
+			} else {
+				env.Kubeconfig = &config
+			}
+		}
+	}
+}
+
+// ----------------------------------------------------------
+// Attempt to open file at path as .kubeconfig
+// If there is a problem and errmsg is set, log an error
+func openKubeconfig(path string, errmsg string) (file *os.File) {
+	var err error
+	if path != "" {
+		if file, err = os.Open(path); err == nil {
+			log.Infof("Reading .kubeconfig at %s", path)
+		} else if errmsg == "" {
+			log.Debugf("Could not read .kubeconfig at %s:\n%#v", path, err)
+		} else if os.IsNotExist(err) {
+			log.Error(errmsg + "but that file does not exist.")
+		} else if os.IsPermission(err) {
+			log.Error(errmsg + "but lack permission to read that file.")
+		} else if err != nil {
+			log.Errorf("%sbut there was an error opening it:\n%#v", errmsg, err)
+		} // else it is open for reading
+	}
+	return file
 }
