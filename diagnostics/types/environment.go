@@ -1,8 +1,8 @@
 package types
 
 import (
-	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
+	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 )
 
 type Environment struct {

@@ -7,7 +7,7 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/types"
 	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
-  clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
+	clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -174,11 +174,11 @@ func readKubeconfig(env *types.Environment) {
 
 // ----------------------------------------------------------
 // Look for .kubeconfig in a number of possible locations
-func findKubeconfig(env *types.Environment) (file *os.File){
+func findKubeconfig(env *types.Environment) (file *os.File) {
 	fPath := env.Flags.KubeconfigPath
 	kcPath := os.Getenv("KUBECONFIG")
 	adminPath1 := "/var/lib/openshift/openshift.certificates.d/admin/.kubeconfig" // enterprise
-	adminPath2 := "/openshift.certificates.d/admin/.kubeconfig" // origin systemd
+	adminPath2 := "/openshift.certificates.d/admin/.kubeconfig"                   // origin systemd
 	adminWarningF := `
 .kubeconfig was not available where expected; however, one exists at
   %s
@@ -191,7 +191,7 @@ environment variable KUBECONFIG in your ~/.bash_profile:
 If this is not what you want, you should obtain a .kubeconfig and
 place it in a standard location.
 `
- 	if fPath != "" {
+	if fPath != "" {
 		// user specified intended path; don't keep looking if it isn't there.
 		return openKubeconfig(fPath, fmt.Sprintf("-c specified that .kubeconfig should be at %s\n", fPath))
 	} else if kcPath != "" {
