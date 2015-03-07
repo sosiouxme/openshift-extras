@@ -112,14 +112,15 @@ func getExecVersion(path string) (version types.Version, err error) {
 	if err == nil {
 		var name string
 		var x, y, z int
-		if _, err = fmt.Sscanf(string(out), "%s v%d.%d.%d", &name, &x, &y, &z); err == nil {
+		if scanned, err := fmt.Sscanf(string(out), "%s v%d.%d.%d", &name, &x, &y, &z); scanned > 1 {
 			version = types.Version{x, y, z}
 			log.Infof("version of %s is %#v", name, version)
 		} else {
 			log.Errorf(`
 Expected version output from '%s version'
 Could not parse output received:
-%v`, path, string(out))
+%v
+Error was: %#v`, path, string(out), err)
 		}
 	} else {
 		switch err.(type) {
