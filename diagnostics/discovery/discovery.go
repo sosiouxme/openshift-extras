@@ -5,7 +5,9 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
-	"gopkg.in/yaml.v2"
+	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
+	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
+  clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -140,47 +142,80 @@ Output was:
 
 /* ----------------------------------------------------------
 Look for the .kubeconfig and read it in.
-We are not going to attempt merging multiple files as is
-possible with the actual client; most users will just be
-dealing with a single kubeconfig, and we will be replacing
-all of that with our own config soon enough.
+
+We are not going to attempt merging multiple files as the
+actual client permits; most users will just be dealing with
+a single kubeconfig, and we will be replacing all of that
+with OpenShift-specific config soon enough.
+
+We will look in the standard locations, alert the user to
+what we find as we go along, and try to be helpful.
 */
 func readKubeconfig(env *types.Environment) {
-	var file *os.File
-	path := env.Flags.KubeconfigPath
-	if path != "" {
-		file = openKubeconfig(path, fmt.Sprintf("-c specified that .kubeconfig should be at %s\n", path))
-		// user specified intended path, don't keep looking if it isn't there.
-	} else {
-		path = os.Getenv("KUBECONFIG")
-		if path != "" {
-			file = openKubeconfig(path, fmt.Sprintf("$KUBECONFIG specified that .kubeconfig should be at %s\n", path))
-			// $KUBECONFIG specified intended path, don't keep looking if it isn't there
-		} else {
-			// look for it in `pwd`
-			path, _ = os.Getwd()
-			if file = openKubeconfig(path+"/.kubeconfig", ""); file == nil {
-				// not found, look for it in $HOME
-				file = openKubeconfig(os.Getenv("HOME")+"/.kubeconfig", "")
-			}
-		}
-	}
+	file := findKubeconfig(env)
 	if file == nil {
-		log.Warn("No .kubeconfig read; default config expects OpenShift master at https://localhost:8443/")
+		log.Warn("No .kubeconfig read; using default config with OpenShift master at https://localhost:8443/")
 	} else {
 		defer file.Close()
 		if buffer, err := ioutil.ReadAll(file); err != nil {
 			log.Errorf("Unexpected error while reading .kubeconfig file (%s): %#v", file.Name(), err)
 		} else {
-			config := make(map[string]interface{})
-			err := yaml.Unmarshal(buffer, &config)
-			if err != nil {
+			config := &clientcmdapi.Config{}
+			if err := clientcmdlatest.Codec.DecodeInto(buffer, config); err != nil {
+				// XXX: in post-0.4 rebase, becomes clientcmd.Load(buffer) - if we care
 				log.Errorf("Error reading YAML from kubeconfig:\n%#v", err)
 			} else {
-				env.Kubeconfig = &config
+				env.Kubeconfig = config
 			}
 		}
 	}
+}
+
+// ----------------------------------------------------------
+// Look for .kubeconfig in a number of possible locations
+func findKubeconfig(env *types.Environment) (file *os.File){
+	fPath := env.Flags.KubeconfigPath
+	kcPath := os.Getenv("KUBECONFIG")
+	adminPath1 := "/var/lib/openshift/openshift.certificates.d/admin/.kubeconfig" // enterprise
+	adminPath2 := "/openshift.certificates.d/admin/.kubeconfig" // origin systemd
+	adminWarningF := `
+.kubeconfig was not available where expected; however, one exists at
+  %s
+which is a standard location where the master generates it.
+Diagnostics will attempt to use this as your .kubeconfig now.
+If this is what you want, you should copy it to a standard location
+(your home directory, or the current directory), or you can set the
+environment variable KUBECONFIG in your ~/.bash_profile:
+  export KUBECONFIG=%s
+If this is not what you want, you should obtain a .kubeconfig and
+place it in a standard location.
+`
+ 	if fPath != "" {
+		// user specified intended path; don't keep looking if it isn't there.
+		return openKubeconfig(fPath, fmt.Sprintf("-c specified that .kubeconfig should be at %s\n", fPath))
+	} else if kcPath != "" {
+		// $KUBECONFIG specified intended path; don't keep looking if it isn't there
+		return openKubeconfig(kcPath, fmt.Sprintf("$KUBECONFIG specified that .kubeconfig should be at %s\n", kcPath))
+	}
+	// look for it in `pwd`
+	path, _ := os.Getwd()
+	if file = openKubeconfig(path+"/.kubeconfig", ""); file != nil {
+		return file
+	}
+	// look for it in $HOME
+	if file = openKubeconfig(os.Getenv("HOME")+"/.kubeconfig", ""); file != nil {
+		return file
+	}
+	// look for it in auto-generated locations
+	if file = openKubeconfig(adminPath1, ""); file != nil {
+		log.Warnf(adminWarningF, adminPath1, adminPath1)
+		return file
+	}
+	if file = openKubeconfig(adminPath2, ""); file != nil {
+		log.Warnf(adminWarningF, adminPath2, adminPath2)
+		return file
+	}
+	return file
 }
 
 // ----------------------------------------------------------

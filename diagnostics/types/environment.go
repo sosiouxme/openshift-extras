@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
+	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
 )
 
 type Environment struct {
@@ -14,7 +15,7 @@ type Environment struct {
 	OpenshiftPath    string
 	OpenshiftVersion Version
 	KubeconfigPath   string
-	Kubeconfig       *map[string]interface{}
+	Kubeconfig       *clientcmdapi.Config
 
 	Flags *flags.Flags
 }
