@@ -21,17 +21,32 @@ var (
 )
 
 var current Level = InfoLevel // default
+var warningsSeen int = 0
+var errorsSeen int = 0
 
-func SetLevel(l int) {
-	switch {
-	case l == 0:
+func SetLevel(level int) {
+	switch level {
+	case 0:
 		current = ErrorLevel
-	case l == 1:
+	case 1:
 		current = WarnLevel
-	case l == 2:
+	case 2:
 		current = InfoLevel
 	default:
 		current = DebugLevel
+	}
+}
+
+func Summary() {
+	fmt.Println("\nSummary of diagnostics execution:")
+	if warningsSeen > 0 {
+		log(WarnLevel, fmt.Sprintf("Warnings seen: %d", warningsSeen))
+	}
+	if errorsSeen > 0 {
+		log(ErrorLevel, fmt.Sprintf("Errors seen: %d", errorsSeen))
+	}
+	if warningsSeen == 0 && errorsSeen == 0 {
+		log(InfoLevel, "Completed with no errors or warnings seen.")
 	}
 }
 
@@ -45,6 +60,7 @@ func log(l Level, msg string) {
 
 func Error(msg string) {
 	log(ErrorLevel, msg)
+	errorsSeen += 1
 }
 func Errorf(msg string, a ...interface{}) {
 	Error(fmt.Sprintf(msg, a...))
@@ -52,6 +68,7 @@ func Errorf(msg string, a ...interface{}) {
 
 func Warn(msg string) {
 	log(WarnLevel, msg)
+	warningsSeen += 1
 }
 func Warnf(msg string, a ...interface{}) {
 	Warn(fmt.Sprintf(msg, a...))

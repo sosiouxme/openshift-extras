@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/openshift/openshift-extras/diagnostics/client"
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/discovery"
 	"github.com/openshift/openshift-extras/diagnostics/log"
@@ -30,7 +31,9 @@ func NewCommand() *cobra.Command {
 		Run: func(c *cobra.Command, args []string) {
 			log.SetLevel(f.LogLevel)
 			c.SetOutput(os.Stdout)
-			discovery.Run(&f)
+			env := discovery.Run(&f)
+			client.Diagnose(env)
+			log.Summary()
 		},
 	}
 
@@ -47,7 +50,7 @@ func NewCommand() *cobra.Command {
 func newVersionCommand(name string) *cobra.Command {
 	return &cobra.Command{
 		Use:   name,
-		Short: "Display version",
+		Short: "Display version of the diagnostics tool",
 		Run: func(c *cobra.Command, args []string) {
 			fmt.Print("diagnostics alpha1 for openshift v3beta2\n")
 		},
