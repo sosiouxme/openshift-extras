@@ -8,6 +8,7 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/discovery"
 	"github.com/openshift/openshift-extras/diagnostics/log"
+	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/spf13/cobra"
 )
 
@@ -23,25 +24,28 @@ Note: This is a pre-alpha version of diagnostics and will change significantly.
 `
 
 func NewCommand() *cobra.Command {
-	f := flags.Flags{}
 	cmd := &cobra.Command{
 		Use:   "diagnostics",
 		Short: "This utility helps you understand and troubleshoot OpenShift v3.",
 		Long:  longDescription,
-		Run: func(c *cobra.Command, args []string) {
-			log.SetLevel(f.LogLevel)
-			c.SetOutput(os.Stdout)
-			env := discovery.Run(&f)
-			client.Diagnose(env)
-			log.Summary()
-		},
+	}
+	osFlags := cmd.PersistentFlags()
+	diagFlags := flags.Flags{OpenshiftFlags: osFlags}
+	factory := clientcmd.New(osFlags)
+	cmd.Run = func(c *cobra.Command, args []string) {
+		log.SetLevel(diagFlags.LogLevel)
+		c.SetOutput(os.Stdout)
+		env := discovery.Run(&diagFlags, factory)
+		client.Diagnose(env)
+		log.Summary()
 	}
 
 	cmd.AddCommand(newVersionCommand("version"))
-	cmd.Flags().IntVarP(&f.LogLevel, "loglevel", "l", 2, "Level of output: 0 = Error, 1 = Warn, 2 = Info, 3 = Debug")
-	cmd.Flags().StringVarP(&f.OpenshiftPath, "openshift", "O", "", "Path to 'openshift' binary")
-	cmd.Flags().StringVarP(&f.OscPath, "osc", "o", "", "Path to 'osc' client binary")
-	cmd.Flags().StringVarP(&f.KubeconfigPath, "config", "c", "", "Path to '.kubeconfig' client config file")
+	// Add flags separately from those inherited from the client
+	cmd.Flags().IntVarP(&diagFlags.LogLevel, "loglevel", "l", 2, "Level of output: 0 = Error, 1 = Warn, 2 = Info, 3 = Debug")
+	cmd.Flags().StringVarP(&diagFlags.OpenshiftPath, "openshift", "O", "", "Path to 'openshift' binary")
+	cmd.Flags().StringVarP(&diagFlags.OscPath, "osc", "o", "", "Path to 'osc' client binary")
+	//cmd.Flags().StringVarP(&f.KubeconfigPath, "config", "c", "", "Path to '.kubeconfig' client config file")
 
 	return cmd
 }

@@ -14,10 +14,11 @@ type Level struct {
 }
 
 var (
-	ErrorLevel = Level{0, "ERROR: ", ct.Red, true}
-	WarnLevel  = Level{1, "WARN:  ", ct.Yellow, false}
-	InfoLevel  = Level{2, "Info:  ", ct.None, true}
-	DebugLevel = Level{3, "debug: ", ct.None, false}
+	ErrorLevel  = Level{0, "ERROR: ", ct.Red, true}
+	WarnLevel   = Level{1, "WARN:  ", ct.Yellow, false}
+	InfoLevel   = Level{2, "Info:  ", ct.None, true}
+	NoticeLevel = Level{2, "[Note] ", ct.White, true}
+	DebugLevel  = Level{3, "debug: ", ct.None, false}
 )
 
 var current Level = InfoLevel // default
@@ -56,6 +57,13 @@ func log(l Level, msg string) {
 		fmt.Println(l.Prefix + strings.Replace(msg, "\n", "\n       ", -1))
 		ct.ResetColor()
 	}
+}
+
+func Notice(msg string) {
+	log(NoticeLevel, msg)
+}
+func Noticef(msg string, a ...interface{}) {
+	Notice(fmt.Sprintf(msg, a...))
 }
 
 func Error(msg string) {

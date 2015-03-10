@@ -2,12 +2,13 @@ package discovery
 
 import (
 	"fmt"
+	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
+	clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
+	osclient "github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
-	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
-	clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -18,8 +19,9 @@ import (
 
 // ----------------------------------------------------------
 // Examine system and return findings in an Environment
-func Run(f *flags.Flags) *types.Environment {
-	env := &types.Environment{Flags: f}
+func Run(fl *flags.Flags, factory *osclient.Factory) *types.Environment {
+	log.Notice("Beginning discovery of environment")
+	env := &types.Environment{Flags: fl}
 	osDiscovery(env)
 	execDiscovery(env)
 	readKubeconfig(env)
@@ -155,18 +157,31 @@ what we find as we go along, and try to be helpful.
 func readKubeconfig(env *types.Environment) {
 	file := findKubeconfig(env)
 	if file == nil {
-		log.Warn("No .kubeconfig read; using default config with OpenShift master at https://localhost:8443/")
+		log.Warn("No .kubeconfig read; default OpenShift config will be used, which is likely not what you want.")
 	} else {
 		defer file.Close()
 		if buffer, err := ioutil.ReadAll(file); err != nil {
-			log.Errorf("Unexpected error while reading .kubeconfig file (%s): %#v", file.Name(), err)
+			log.Errorf("Unexpected error while reading .kubeconfig file (%s): %v", file.Name(), err)
 		} else {
 			config := &clientcmdapi.Config{}
 			if err := clientcmdlatest.Codec.DecodeInto(buffer, config); err != nil {
 				// XXX: in post-0.4 rebase, becomes clientcmd.Load(buffer) - if we care
-				log.Errorf("Error reading YAML from kubeconfig:\n%#v", err)
+				log.Errorf(`Error reading YAML from kubeconfig file (%s):
+  %v
+This file may have been truncated or mis-edited.
+Please fix or get a new .kubeconfig`, file.Name(), err)
 			} else {
+				/* Note, we're not actually going to use this config,
+				 * because it's too hard to turn it into something that's useful.
+				 * Instead, we'll defer to the openshift client code to assimilate
+				 * flags, env vars, and the potential hierarchy of kubeconfig files
+				 * into an actual configuration that the client uses.
+				 */
 				env.Kubeconfig = config
+				log.Infof(`Successfully read a .kubeconfig file at '%s';
+be aware that the actual configuration used later may be different
+due to environment variables, flags, and other .kubeconfig files
+being merged together.`, file.Name())
 			}
 		}
 	}
@@ -175,7 +190,7 @@ func readKubeconfig(env *types.Environment) {
 // ----------------------------------------------------------
 // Look for .kubeconfig in a number of possible locations
 func findKubeconfig(env *types.Environment) (file *os.File) {
-	fPath := env.Flags.KubeconfigPath
+	fPath := env.Flags.OpenshiftFlags.Lookup("kubeconfig").Value.String()
 	kcPath := os.Getenv("KUBECONFIG")
 	adminPath1 := "/var/lib/openshift/openshift.certificates.d/admin/.kubeconfig" // enterprise
 	adminPath2 := "/openshift.certificates.d/admin/.kubeconfig"                   // origin systemd
@@ -183,7 +198,6 @@ func findKubeconfig(env *types.Environment) (file *os.File) {
 .kubeconfig was not available where expected; however, one exists at
   %s
 which is a standard location where the master generates it.
-Diagnostics will attempt to use this as your .kubeconfig now.
 If this is what you want, you should copy it to a standard location
 (your home directory, or the current directory), or you can set the
 environment variable KUBECONFIG in your ~/.bash_profile:
@@ -209,12 +223,14 @@ place it in a standard location.
 	}
 	// look for it in auto-generated locations
 	if file = openKubeconfig(adminPath1, ""); file != nil {
+		file.Close()
+		file = nil
 		log.Warnf(adminWarningF, adminPath1, adminPath1)
-		return file
 	}
 	if file = openKubeconfig(adminPath2, ""); file != nil {
+		file.Close()
+		file = nil
 		log.Warnf(adminWarningF, adminPath2, adminPath2)
-		return file
 	}
 	return file
 }
