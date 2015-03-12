@@ -1,9 +1,12 @@
 package types
 
 import (
-	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
+	kubeclient "github.com/GoogleCloudPlatform/kubernetes/pkg/client"
+	kccmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
-	osclient "github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	osclient "github.com/openshift/origin/pkg/client"
+	osclientcmd "github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	"github.com/spf13/cobra"
 )
 
 type Environment struct {
@@ -15,9 +18,12 @@ type Environment struct {
 	OscVersion       Version
 	OpenshiftPath    string
 	OpenshiftVersion Version
-	//KubeconfigPath   string
-	OsConfig   *osclient.Config
-	Kubeconfig *clientcmdapi.Config // for analysis, not use
+	OsConfig         *osclientcmd.Config
+	Kubeconfig       *kccmdapi.Config // for analysis, not configuration
+	OsClient         *osclient.Client
+	KubeClient       *kubeclient.Client
+	Factory          *osclientcmd.Factory
+	Command          *cobra.Command
 
-	Flags *flags.Flags // user flags deposit results here
+	Flags *flags.Flags // command flags deposit results here
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
-	osclient "github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	"io/ioutil"
 	"os"
@@ -19,10 +18,10 @@ import (
 
 // ----------------------------------------------------------
 // Examine system and return findings in an Environment
-func Run(fl *flags.Flags, factory *osclient.Factory) *types.Environment {
+func Run(fl *flags.Flags) *types.Environment {
 	log.Notice("Beginning discovery of environment")
 	env := &types.Environment{Flags: fl}
-	osDiscovery(env)
+	operatingSystemDiscovery(env)
 	execDiscovery(env)
 	readKubeconfig(env)
 	return env
@@ -30,7 +29,7 @@ func Run(fl *flags.Flags, factory *osclient.Factory) *types.Environment {
 
 // ----------------------------------------------------------
 // Determine what we need to about the OS
-func osDiscovery(env *types.Environment) {
+func operatingSystemDiscovery(env *types.Environment) {
 	env.OS = runtime.GOOS
 	if env.OS == "linux" {
 		if _, err := exec.LookPath("systemctl"); err == nil {

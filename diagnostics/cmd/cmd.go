@@ -35,7 +35,10 @@ func NewCommand() *cobra.Command {
 	cmd.Run = func(c *cobra.Command, args []string) {
 		log.SetLevel(diagFlags.LogLevel)
 		c.SetOutput(os.Stdout)
-		env := discovery.Run(&diagFlags, factory)
+		env := discovery.Run(&diagFlags)
+		env.Command = c
+		env.Factory = factory
+		env.OsClient, env.KubeClient, _ = factory.Clients(c)
 		client.Diagnose(env)
 		log.Summary()
 	}
