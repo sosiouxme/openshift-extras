@@ -10,10 +10,10 @@ import (
 )
 
 type Environment struct {
-	OS         string // "linux / windows / darwin" http://golang.org/pkg/runtime/#GOOS
-	HasSystemd bool
-	HasBash    bool
-	Units      []SystemdUnit // list of those present on system
+	OS           string // "linux / windows / darwin" http://golang.org/pkg/runtime/#GOOS
+	HasSystemd   bool
+	HasBash      bool
+	SystemdUnits map[string]SystemdUnit // list of those present on system
 
 	OscPath          string
 	OscVersion       Version

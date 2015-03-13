@@ -32,14 +32,18 @@ func NewCommand() *cobra.Command {
 	osFlags := cmd.PersistentFlags()
 	diagFlags := flags.Flags{OpenshiftFlags: osFlags}
 	factory := clientcmd.New(osFlags)
+	// callback function for when this command is invoked
 	cmd.Run = func(c *cobra.Command, args []string) {
 		log.SetLevel(diagFlags.LogLevel)
-		c.SetOutput(os.Stdout)
+		c.SetOutput(os.Stdout) // TODO: does this matter?
 		env := discovery.Run(&diagFlags)
+		// set up openshift/kube client objects
 		env.Command = c
 		env.Factory = factory
 		env.OsClient, env.KubeClient, _ = factory.Clients(c)
+		// run the diagnostics
 		client.Diagnose(env)
+		// summarize...
 		log.Summary()
 	}
 
@@ -48,7 +52,6 @@ func NewCommand() *cobra.Command {
 	cmd.Flags().IntVarP(&diagFlags.LogLevel, "loglevel", "l", 2, "Level of output: 0 = Error, 1 = Warn, 2 = Info, 3 = Debug")
 	cmd.Flags().StringVarP(&diagFlags.OpenshiftPath, "openshift", "O", "", "Path to 'openshift' binary")
 	cmd.Flags().StringVarP(&diagFlags.OscPath, "osc", "o", "", "Path to 'osc' client binary")
-	//cmd.Flags().StringVarP(&f.KubeconfigPath, "config", "c", "", "Path to '.kubeconfig' client config file")
 
 	return cmd
 }

@@ -2,12 +2,12 @@ package discovery
 
 import (
 	"fmt"
+	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
 	clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
-	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -23,6 +23,7 @@ func Run(fl *flags.Flags) *types.Environment {
 	env := &types.Environment{Flags: fl}
 	operatingSystemDiscovery(env)
 	clientDiscovery(env)
+	discoverSystemd(env)
 	readKubeconfig(env)
 	return env
 }
@@ -39,50 +40,6 @@ func operatingSystemDiscovery(env *types.Environment) {
 			env.HasBash = true
 		}
 	}
-	if env.HasSystemd { // discover units we care about
-		units := make(map[string]types.SystemdUnit)
-		for _, name := range []string{"openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "etcd", "kubernetes"} {
-			if unit := discoverUnit(name); unit.Exists {
-				units[name] = unit
-			}
-		}
-	}
-}
-
-func discoverUnit(name string) types.SystemdUnit {
-	unit := types.SystemdUnit{Name: name, Exists: false}
-	if output, err := exec.Command("systemctl", "show", name).Output(); err != nil {
-		log.Errorf("Error running `systemctl show %s`: %v\nCannot analyze systemd units.", name, err)
-	} else {
-		attr := make(map[string]string)
-		for _, line := range strings.Split(string(output), "\n") {
-			elements := strings.SplitN(line, "=", 2) // Looking for "Foo=Bar" settings
-			if len(elements) == 2 {                  // found that, record it...
-				attr[elements[0]] = elements[1]
-			}
-		}
-		if val := attr["LoadState"]; val != "loaded" {
-			log.Debugf("systemd unit '%s' does not exist. LoadState is '%s'", name, val)
-			return unit // doesn't exist - leave everything blank
-		}
-		if val := attr["UnitFileState"]; val == "enabled" {
-			log.Infof("systemd unit '%s' is enabled - it will start automatically at boot.", name)
-			unit.Enabled = true
-		} else {
-			log.Infof("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
-		}
-		if val := attr["ActiveState"]; val == "active" {
-			log.Infof("systemd unit '%s' is currently running", name)
-			unit.Active = true
-		} else {
-			log.Infof("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
-		}
-		fmt.Sscanf(attr["StatusErrno"], "%d", &unit.ExitStatus) // ignore errors...
-		if !unit.Active {
-			log.Infof("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
-		}
-	}
-	return unit
 }
 
 // ----------------------------------------------------------
@@ -182,8 +139,65 @@ Output was:
 			log.Errorf("executed '%v version' but an error occurred:\n%v\nOutput was:\n%v", path, err, string(out))
 		}
 	}
-
 	return version, err
+}
+
+// ----------------------------------------------------------
+// Determine what systemd units are relevant, if any
+// Run after determining whether systemd and openshift are present.
+func discoverSystemd(env *types.Environment) {
+	if env.OpenshiftPath == "" || !env.HasSystemd {
+		/* If no openshift executable, for now we assume OpenShift is not running here,
+		 * in which case we don't much care about systemd services.
+		 * TODO: in the future, OpenShift could be running in a docker container,
+		 * and could depend on services running separately (kubernetes, etcd).
+		 * Handle this gracefully, as well as `openshift start` processes
+		 * running outside systemd */
+		return
+	}
+	if env.HasSystemd { // discover units we care about
+		for _, name := range []string{"openshift", "openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "etcd", "kubernetes"} {
+			if unit := discoverSystemdUnit(name); unit.Exists {
+				env.SystemdUnits[name] = unit
+			}
+		}
+	}
+}
+
+func discoverSystemdUnit(name string) types.SystemdUnit {
+	unit := types.SystemdUnit{Name: name, Exists: false}
+	if output, err := exec.Command("systemctl", "show", name).Output(); err != nil {
+		log.Errorf("Error running `systemctl show %s`: %v\nCannot analyze systemd units.", name, err)
+	} else {
+		attr := make(map[string]string)
+		for _, line := range strings.Split(string(output), "\n") {
+			elements := strings.SplitN(line, "=", 2) // Looking for "Foo=Bar" settings
+			if len(elements) == 2 {                  // found that, record it...
+				attr[elements[0]] = elements[1]
+			}
+		}
+		if val := attr["LoadState"]; val != "loaded" {
+			log.Debugf("systemd unit '%s' does not exist. LoadState is '%s'", name, val)
+			return unit // doesn't exist - leave everything blank
+		}
+		if val := attr["UnitFileState"]; val == "enabled" {
+			log.Infof("systemd unit '%s' is enabled - it will start automatically at boot.", name)
+			unit.Enabled = true
+		} else {
+			log.Infof("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
+		}
+		if val := attr["ActiveState"]; val == "active" {
+			log.Infof("systemd unit '%s' is currently running", name)
+			unit.Active = true
+		} else {
+			log.Infof("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
+		}
+		fmt.Sscanf(attr["StatusErrno"], "%d", &unit.ExitStatus) // ignore errors...
+		if !unit.Active {
+			log.Infof("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
+		}
+	}
+	return unit
 }
 
 /* ----------------------------------------------------------
