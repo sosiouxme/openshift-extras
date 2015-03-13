@@ -15,9 +15,9 @@ type Level struct {
 
 var (
 	ErrorLevel  = Level{0, "ERROR: ", ct.Red, true}
-	WarnLevel   = Level{1, "WARN:  ", ct.Yellow, false}
-	InfoLevel   = Level{2, "Info:  ", ct.None, true}
-	NoticeLevel = Level{2, "[Note] ", ct.White, true}
+	WarnLevel   = Level{1, "WARN:  ", ct.Yellow, true}
+	InfoLevel   = Level{2, "Info:  ", ct.None, false}
+	NoticeLevel = Level{2, "[Note] ", ct.White, false}
 	DebugLevel  = Level{3, "debug: ", ct.None, false}
 )
 
