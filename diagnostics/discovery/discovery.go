@@ -22,7 +22,7 @@ func Run(fl *flags.Flags) *types.Environment {
 	log.Notice("Beginning discovery of environment")
 	env := &types.Environment{Flags: fl}
 	operatingSystemDiscovery(env)
-	execDiscovery(env)
+	clientDiscovery(env)
 	readKubeconfig(env)
 	return env
 }
@@ -39,11 +39,55 @@ func operatingSystemDiscovery(env *types.Environment) {
 			env.HasBash = true
 		}
 	}
+	if env.HasSystemd { // discover units we care about
+		units := make(map[string]types.SystemdUnit)
+		for _, name := range []string{"openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "etcd", "kubernetes"} {
+			if unit := discoverUnit(name); unit.Exists {
+				units[name] = unit
+			}
+		}
+	}
+}
+
+func discoverUnit(name string) types.SystemdUnit {
+	unit := types.SystemdUnit{Name: name, Exists: false}
+	if output, err := exec.Command("systemctl", "show", name).Output(); err != nil {
+		log.Errorf("Error running `systemctl show %s`: %v\nCannot analyze systemd units.", name, err)
+	} else {
+		attr := make(map[string]string)
+		for _, line := range strings.Split(string(output), "\n") {
+			elements := strings.SplitN(line, "=", 2) // Looking for "Foo=Bar" settings
+			if len(elements) == 2 {                  // found that, record it...
+				attr[elements[0]] = elements[1]
+			}
+		}
+		if val := attr["LoadState"]; val != "loaded" {
+			log.Debugf("systemd unit '%s' does not exist. LoadState is '%s'", name, val)
+			return unit // doesn't exist - leave everything blank
+		}
+		if val := attr["UnitFileState"]; val == "enabled" {
+			log.Infof("systemd unit '%s' is enabled - it will start automatically at boot.", name)
+			unit.Enabled = true
+		} else {
+			log.Infof("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
+		}
+		if val := attr["ActiveState"]; val == "active" {
+			log.Infof("systemd unit '%s' is currently running", name)
+			unit.Active = true
+		} else {
+			log.Infof("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
+		}
+		fmt.Sscanf(attr["StatusErrno"], "%d", &unit.ExitStatus) // ignore errors...
+		if !unit.Active {
+			log.Infof("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
+		}
+	}
+	return unit
 }
 
 // ----------------------------------------------------------
 // Look for 'osc' and 'openshift' executables
-func execDiscovery(env *types.Environment) (err error) {
+func clientDiscovery(env *types.Environment) (err error) {
 	log.Debug("Searching for executables in path:\n  " + strings.Join(filepath.SplitList(os.Getenv("PATH")), "\n  ")) //TODO for non-Linux OS
 	env.OscPath = findExecAndLog("osc", env, env.Flags.OscPath)
 	if env.OscPath != "" {

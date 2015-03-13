@@ -13,6 +13,7 @@ type Environment struct {
 	OS         string // "linux / windows / darwin" http://golang.org/pkg/runtime/#GOOS
 	HasSystemd bool
 	HasBash    bool
+	Units      []SystemdUnit // list of those present on system
 
 	OscPath          string
 	OscVersion       Version
