@@ -41,56 +41,59 @@ func SetLevel(level int) {
 func Summary() {
 	fmt.Println("\nSummary of diagnostics execution:")
 	if warningsSeen > 0 {
-		log(WarnLevel, fmt.Sprintf("Warnings seen: %d", warningsSeen))
+		Log(WarnLevel, fmt.Sprintf("Warnings seen: %d", warningsSeen))
 	}
 	if errorsSeen > 0 {
-		log(ErrorLevel, fmt.Sprintf("Errors seen: %d", errorsSeen))
+		Log(ErrorLevel, fmt.Sprintf("Errors seen: %d", errorsSeen))
 	}
 	if warningsSeen == 0 && errorsSeen == 0 {
-		log(InfoLevel, "Completed with no errors or warnings seen.")
+		Log(InfoLevel, "Completed with no errors or warnings seen.")
 	}
 }
 
-func log(l Level, msg string) {
+func Log(l Level, msg string) {
 	if l.Level <= current.Level {
 		ct.ChangeColor(l.Color, l.Bright, ct.None, false)
 		fmt.Println(l.Prefix + strings.Replace(msg, "\n", "\n       ", -1))
 		ct.ResetColor()
 	}
+	if l.Level == ErrorLevel.Level {
+		errorsSeen += 1
+	} else if l.Level == WarnLevel.Level {
+		warningsSeen += 1
+	}
 }
 
 func Notice(msg string) {
-	log(NoticeLevel, msg)
+	Log(NoticeLevel, msg)
 }
 func Noticef(msg string, a ...interface{}) {
 	Notice(fmt.Sprintf(msg, a...))
 }
 
 func Error(msg string) {
-	log(ErrorLevel, msg)
-	errorsSeen += 1
+	Log(ErrorLevel, msg)
 }
 func Errorf(msg string, a ...interface{}) {
 	Error(fmt.Sprintf(msg, a...))
 }
 
 func Warn(msg string) {
-	log(WarnLevel, msg)
-	warningsSeen += 1
+	Log(WarnLevel, msg)
 }
 func Warnf(msg string, a ...interface{}) {
 	Warn(fmt.Sprintf(msg, a...))
 }
 
 func Info(msg string) {
-	log(InfoLevel, msg)
+	Log(InfoLevel, msg)
 }
 func Infof(msg string, a ...interface{}) {
 	Info(fmt.Sprintf(msg, a...))
 }
 
 func Debug(msg string) {
-	log(DebugLevel, msg)
+	Log(DebugLevel, msg)
 }
 func Debugf(msg string, a ...interface{}) {
 	Debug(fmt.Sprintf(msg, a...))

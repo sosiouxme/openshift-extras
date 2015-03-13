@@ -20,7 +20,7 @@ import (
 // Examine system and return findings in an Environment
 func Run(fl *flags.Flags) *types.Environment {
 	log.Notice("Beginning discovery of environment")
-	env := &types.Environment{Flags: fl}
+	env := &types.Environment{Flags: fl, SystemdUnits: make(map[string]types.SystemdUnit)}
 	operatingSystemDiscovery(env)
 	clientDiscovery(env)
 	discoverSystemd(env)
@@ -159,9 +159,11 @@ func discoverSystemd(env *types.Environment) {
 		for _, name := range []string{"openshift", "openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "etcd", "kubernetes"} {
 			if unit := discoverSystemdUnit(name); unit.Exists {
 				env.SystemdUnits[name] = unit
+				log.Debugf("Saw unit %s", name)
 			}
 		}
 	}
+	log.Debugf("%v", env.SystemdUnits)
 }
 
 func discoverSystemdUnit(name string) types.SystemdUnit {
@@ -179,6 +181,8 @@ func discoverSystemdUnit(name string) types.SystemdUnit {
 		if val := attr["LoadState"]; val != "loaded" {
 			log.Debugf("systemd unit '%s' does not exist. LoadState is '%s'", name, val)
 			return unit // doesn't exist - leave everything blank
+		} else {
+			unit.Exists = true
 		}
 		if val := attr["UnitFileState"]; val == "enabled" {
 			log.Infof("systemd unit '%s' is enabled - it will start automatically at boot.", name)

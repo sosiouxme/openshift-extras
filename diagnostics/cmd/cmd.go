@@ -8,6 +8,8 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/discovery"
 	"github.com/openshift/openshift-extras/diagnostics/log"
+	"github.com/openshift/openshift-extras/diagnostics/systemd"
+	"github.com/openshift/openshift-extras/diagnostics/types"
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/spf13/cobra"
 )
@@ -42,7 +44,7 @@ func NewCommand() *cobra.Command {
 		env.Factory = factory
 		env.OsClient, env.KubeClient, _ = factory.Clients(c)
 		// run the diagnostics
-		client.Diagnose(env)
+		Diagnose(env)
 		// summarize...
 		log.Summary()
 	}
@@ -64,5 +66,28 @@ func newVersionCommand(name string) *cobra.Command {
 		Run: func(c *cobra.Command, args []string) {
 			fmt.Print("diagnostics alpha1 for openshift v3beta2\n")
 		},
+	}
+}
+
+func Diagnose(env *types.Environment) {
+	allDiags := map[string]map[string]types.Diagnostic{"client": client.Diagnostics, "systemd": systemd.Diagnostics}
+	// TODO: run all of these in parallel but ensure sane output
+	// TODO: recover from diagnostics that panic so others can still run
+	// TODO: just run a specific (set of) diagnostic(s)
+	for area, diagnostics := range allDiags {
+		for name, d := range diagnostics {
+			if d.Condition != nil {
+				if skip, reason := d.Condition(env); skip {
+					if reason == "" {
+						log.Noticef("Skipping diagnostic: %s.%s\nDescription: %s", area, name, d.Description)
+					} else {
+						log.Noticef("Skipping diagnostic: %s.%s\nDescription: %s\nBecause: %s", area, name, d.Description, reason)
+					}
+					continue
+				}
+			}
+			log.Noticef("Running diagnostic: %s.%s\nDescription: %s", area, name, d.Description)
+			d.Run(env)
+		}
 	}
 }

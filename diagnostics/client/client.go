@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-var diagnostics = map[string]types.Diagnostic{
+var Diagnostics = map[string]types.Diagnostic{
 	"KubeconfigContexts": types.Diagnostic{
 		Description: "Test that kubeconfig contexts and current context are ok",
 		Condition: func(env *types.Environment) (skip bool, reason string) {
@@ -201,23 +201,6 @@ server address.
 			}
 		},
 	},
-}
-
-func Diagnose(env *types.Environment) {
-	for name, d := range diagnostics {
-		if d.Condition != nil {
-			if skip, reason := d.Condition(env); skip {
-				if reason == "" {
-					log.Noticef("Skipping diagnostic: client.%s\nDescription: %s", name, d.Description)
-				} else {
-					log.Noticef("Skipping diagnostic: client.%s\nDescription: %s\nBecause: %s", name, d.Description, reason)
-				}
-				continue
-			}
-		}
-		log.Noticef("Running diagnostic: client.%s\nDescription: %s", name, d.Description)
-		d.Run(env)
-	}
 }
 
 func TestContext(contextName string, config *clientcmdapi.Config) (result string, success bool) {
