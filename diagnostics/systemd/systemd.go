@@ -20,9 +20,13 @@ type LogMatcher struct { // regex for scanning log messages and interpreting the
 
 type UnitSpec struct {
 	Name        string
-	StartMatch  *regexp.Regexp // message to look for in logs indicating startup
+	StartMatch  *regexp.Regexp // regex to look for in log messages indicating startup
 	LogMatchers []LogMatcher   // suspect log patterns to check for - checked in order
 }
+
+//
+// -------- Things that feed into the diagnostics definitions -----------
+//
 
 // Reusable log matchers:
 var badImageTemplate = LogMatcher{
@@ -43,16 +47,38 @@ var unitLogSpecs = []UnitSpec{
 		LogMatchers: []LogMatcher{
 			badImageTemplate,
 			LogMatcher{
-				Regexp:         regexp.MustCompile("Unable to decode an event"),
-				Interpretation: "This is a completely innocuous message; pay it no mind.",
+				Regexp:         regexp.MustCompile("Unable to decode an event from the watch stream: local error: unexpected message"),
+				Interpretation: "You can safely ignore this message.",
 				Level:          log.InfoLevel,
 			},
 		},
 	},
 	UnitSpec{
-		Name:       "docker",
-		StartMatch: regexp.MustCompile(`msg="\\+job containers\\(\\)"`),
+		Name:        "openshift-sdn-master",
+		StartMatch:  regexp.MustCompile("Starting OpenShift SDN Master"),
+		LogMatchers: []LogMatcher{},
+	},
+	UnitSpec{
+		Name:       "openshift-node",
+		StartMatch: regexp.MustCompile("Starting an OpenShift node"),
 		LogMatchers: []LogMatcher{
+			badImageTemplate,
+		},
+	},
+	UnitSpec{
+		Name:        "openshift-sdn-node",
+		StartMatch:  regexp.MustCompile("Starting OpenShift SDN node"),
+		LogMatchers: []LogMatcher{},
+	},
+	UnitSpec{
+		Name:       "docker",
+		StartMatch: regexp.MustCompile(`Starting Docker Application Container Engine.`), // RHEL Docker at least
+		LogMatchers: []LogMatcher{
+			LogMatcher{
+				Regexp:         regexp.MustCompile(`Run 'docker COMMAND --help' for more information on a command.`),
+				Interpretation: "This is not a known problem, but it is causing Docker to crash, so the OpenShift node will not work on this host until it is resolved.",
+				Level:          log.ErrorLevel,
+			},
 			LogMatcher{ // generic error seen - do this last
 				Regexp:         regexp.MustCompile(`\\slevel="fatal"\\s`),
 				Interpretation: "This is not a known problem, but it is causing Docker to crash, so the OpenShift node will not work on this host until it is resolved.",
@@ -60,20 +86,32 @@ var unitLogSpecs = []UnitSpec{
 			},
 		},
 	},
+	UnitSpec{
+		Name:        "openvswitch",
+		StartMatch:  regexp.MustCompile("Starting Open vSwitch"),
+		LogMatchers: []LogMatcher{},
+	},
 }
 
+var systemdRelevant = func(env *types.Environment) (skip bool, reason string) {
+	//return false, "" // for testing...
+	if !env.HasSystemd {
+		return true, "systemd is not present on this host"
+	} else if env.OpenshiftPath == "" {
+		return true, "`openshift` binary not in the path on this host; for now, we assume host is not a server"
+	}
+	return false, ""
+}
+
+//
+// -------- The actual diagnostics definitions -----------
+//
+
 var Diagnostics = map[string]types.Diagnostic{
-	"AnalyzeSystemdLogs": types.Diagnostic{
+
+	"AnalyzeLogs": types.Diagnostic{
 		Description: "Check journald for known problems in relevant systemd unit logs",
-		Condition: func(env *types.Environment) (skip bool, reason string) {
-			//return false, "" // for testing...
-			if !env.HasSystemd {
-				return true, "systemd is not present on this host"
-			} else if env.OpenshiftPath == "" {
-				return true, "`openshift` binary not in the path on this host; for now, we assume host is not a server"
-			}
-			return false, ""
-		},
+		Condition:   systemdRelevant,
 		Run: func(env *types.Environment) {
 			for _, unit := range unitLogSpecs {
 				if svc := env.SystemdUnits[unit.Name]; svc.Enabled || svc.Active {
@@ -83,6 +121,89 @@ var Diagnostics = map[string]types.Diagnostic{
 			}
 		},
 	},
+
+	"UnitStatus": types.Diagnostic{
+		Description: "Check status for OpenShift-related systemd units",
+		Condition:   systemdRelevant,
+		Run: func(env *types.Environment) {
+			u := env.SystemdUnits
+			unitRequiresUnit(u["openshift-node"], u["iptables"], `
+iptables is used by OpenShift nodes for container networking.
+Connections to a container will fail without it.`)
+			unitRequiresUnit(u["openshift-node"], u["docker"], `OpenShift nodes use Docker to run containers.`)
+			unitRequiresUnit(u["openshift-sdn-node"], u["openshift-node"], `
+The software-defined network (SDN) enables networking between
+containers on different nodes. It does not make sense to run this
+service unless the host is operating as an OpenShift node.`)
+			unitRequiresUnit(u["openshift-sdn-master"], u["openshift-master"], `
+The software-defined network (SDN) enables networking between containers
+on different nodes, coordinated via openshift-sdn-master. It does not
+make sense to run this service unless the host is operating as an
+OpenShift master.`)
+			unitRequiresUnit(u["openshift-sdn-node"], u["openvswitch"], `
+The software-defined network (SDN) enables networking between
+containers on different nodes. Containers will not be able to
+connect to each other without the openvswitch service carrying
+this traffic.`)
+			unitRequiresUnit(u["openshift"], u["docker"], `OpenShift nodes use Docker to run containers.`)
+			unitRequiresUnit(u["openshift"], u["iptables"], `
+iptables is used by OpenShift nodes for container networking.
+Connections to a container will fail without it.`)
+			// Anything that is enabled but not running deserves notice
+			for name, unit := range u {
+				if unit.Enabled && !unit.Active {
+					log.Errorf(`
+The %s systemd unit is intended to start at boot but is not currently active.
+An administrator can start the %[1]s unit with:
+  # systemctl start %[1]s
+To ensure it is not failing to run, check the status and logs with:
+  # systemctl status %[1]s
+  # journalctl -ru %[1]s`, name)
+				}
+			}
+		},
+	},
+}
+
+//
+// -------- Functions used by the diagnostics -----------
+//
+
+func unitRequiresUnit(unit types.SystemdUnit, requires types.SystemdUnit, reason string) {
+	if (unit.Active || unit.Enabled) && !requires.Exists {
+		log.Errorf(`
+systemd unit %s depends on unit %s, which is not loaded.
+%s
+An administrator probably needs to install the %[2]s unit with:
+
+  # yum install %[2]s
+
+If it is already installed, you may to reload the definition with:
+
+  # systemctl reload %[2]s
+		`, unit.Name, requires.Name, reason)
+	} else if unit.Active && !requires.Active {
+		log.Errorf(`
+systemd unit %s is running but %s is not.
+%s
+An administrator can start the %[2]s unit with:
+
+  # systemctl start %[2]s
+
+To ensure it is not failing to run, check the status and logs with:
+
+  # systemctl status %[2]s
+  # journalctl -ru %[2]s
+		`, unit.Name, requires.Name, reason)
+	} else if unit.Enabled && !requires.Enabled {
+		log.Warnf(`
+systemd unit %s is enabled to run automatically at boot, but %s is not.
+%s
+An administrator can enable the %[2]s unit with:
+
+  # systemctl enable %[2]s
+		`, unit.Name, requires.Name, reason)
+	}
 }
 
 func matchLogsSinceLastStart(unit UnitSpec) {
