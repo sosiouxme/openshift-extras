@@ -33,9 +33,12 @@ var badImageTemplate = LogMatcher{
 	Regexp: regexp.MustCompile(`Unable to find an image for .* due to an error processing the format: %!v\\(MISSING\\)`),
 	Interpretation: `
 This error indicates openshift was given the flag --images including an invalid format variable.
-Valid formats can include (literally) ${component} and ${version}
+Valid formats can include (literally) ${component} and ${version}.
 This could be a typo or you might be intending to hardcode something,
-such as a version which should be specified as e.g. v3.0, not ${v3.0}`,
+such as a version which should be specified as e.g. v3.0, not ${v3.0}.
+Note that the --images flag may be supplied via the OpenShift master,
+node, or "openshift ex registry/router" invocations and should usually
+be the same for each.`,
 	Level: log.InfoLevel,
 }
 
@@ -48,8 +51,18 @@ var unitLogSpecs = []UnitSpec{
 			badImageTemplate,
 			LogMatcher{
 				Regexp:         regexp.MustCompile("Unable to decode an event from the watch stream: local error: unexpected message"),
-				Interpretation: "You can safely ignore this message.",
 				Level:          log.InfoLevel,
+				Interpretation: "You can safely ignore this message.",
+			},
+			LogMatcher{
+				Regexp: regexp.MustCompile("HTTP probe error: Get .*/healthz: dial tcp .*:10250: connection refused"),
+				Level:  log.InfoLevel,
+				Interpretation: `
+The OpenShift master does a health check on nodes that are defined in
+its records, and this is the result when the node is not available yet.
+Since the master records are typically created before the node is
+available, this is not usually a problem, unless it continues in the
+logs after the node is actually available.`,
 			},
 		},
 	},
@@ -66,23 +79,49 @@ var unitLogSpecs = []UnitSpec{
 		},
 	},
 	UnitSpec{
-		Name:        "openshift-sdn-node",
-		StartMatch:  regexp.MustCompile("Starting OpenShift SDN node"),
-		LogMatchers: []LogMatcher{},
+		Name:       "openshift-sdn-node",
+		StartMatch: regexp.MustCompile("Starting OpenShift SDN node"),
+		LogMatchers: []LogMatcher{
+			LogMatcher{
+				Regexp: regexp.MustCompile("Could not find an allocated subnet for this minion.*Waiting.."),
+				Level:  log.WarnLevel,
+				Interpretation: `
+This warning occurs when openshift-sdn-node is trying to request the
+SDN subnet it should be configured with according to openshift-sdn-master,
+but either can't connect to it ("All the given peers are not reachable")
+or has not yet been assigned a subnet ("Key not found").
+
+This can just be a matter of waiting for the master to become fully
+available and define a record for the node (aka "minion") to use,
+and openshift-sdn-node will wait until that occurs, so the presence
+of this message in the node log isn't necessarily a problem as
+long as the SDN is actually working, but this message may help indicate
+the problem if it is not working.`,
+			},
+		},
 	},
 	UnitSpec{
 		Name:       "docker",
 		StartMatch: regexp.MustCompile(`Starting Docker Application Container Engine.`), // RHEL Docker at least
 		LogMatchers: []LogMatcher{
 			LogMatcher{
-				Regexp:         regexp.MustCompile(`Run 'docker COMMAND --help' for more information on a command.`),
-				Interpretation: "This is not a known problem, but it is causing Docker to crash, so the OpenShift node will not work on this host until it is resolved.",
-				Level:          log.ErrorLevel,
+				Regexp: regexp.MustCompile(`Usage: docker \\[OPTIONS\\] COMMAND`),
+				Level:  log.ErrorLevel,
+				Interpretation: `
+This indicates that docker failed to parse its command line
+successfully, so it just printed a standard usage message and exited.
+Its command line is built from variables in /etc/sysconfig/docker
+(which may be overridden by variables in /etc/sysconfig/openshift-sdn-node)
+so check there for problems.
+
+The OpenShift node will not work on this host until this is resolved.`,
 			},
 			LogMatcher{ // generic error seen - do this last
-				Regexp:         regexp.MustCompile(`\\slevel="fatal"\\s`),
-				Interpretation: "This is not a known problem, but it is causing Docker to crash, so the OpenShift node will not work on this host until it is resolved.",
-				Level:          log.ErrorLevel,
+				Regexp: regexp.MustCompile(`\\slevel="fatal"\\s`),
+				Level:  log.ErrorLevel,
+				Interpretation: `
+This is not a known problem, but it is causing Docker to crash,
+so the OpenShift node will not work on this host until it is resolved.`,
 			},
 		},
 	},
@@ -131,15 +170,27 @@ var Diagnostics = map[string]types.Diagnostic{
 iptables is used by OpenShift nodes for container networking.
 Connections to a container will fail without it.`)
 			unitRequiresUnit(u["openshift-node"], u["docker"], `OpenShift nodes use Docker to run containers.`)
-			unitRequiresUnit(u["openshift-sdn-node"], u["openshift-node"], `
+			// TODO: sdn+ovs will probably not be the only implementation - make this generic
+			// Also, it's possible to run an all-in-one with no SDN
+			unitRequiresUnit(u["openshift-node"], u["openshift-sdn-node"], `
 The software-defined network (SDN) enables networking between
-containers on different nodes. It does not make sense to run this
-service unless the host is operating as an OpenShift node.`)
+containers on different nodes. If it is not running, containers
+on different nodes will not be able to connect to each other.`)
 			unitRequiresUnit(u["openshift-sdn-master"], u["openshift-master"], `
 The software-defined network (SDN) enables networking between containers
 on different nodes, coordinated via openshift-sdn-master. It does not
 make sense to run this service unless the host is operating as an
 OpenShift master.`)
+			unitRequiresUnit(u["openshift-node"], u["openshift-sdn-node"], `
+The software-defined network (SDN) enables networking between
+containers on different nodes. If it is not running, containers
+on different nodes will not be able to connect to each other.`)
+			// TODO: sdn+ovs will probably not be the only implementation - make this generic
+			unitRequiresUnit(u["openshift-master"], u["openshift-sdn-master"], `
+The software-defined network (SDN) enables networking between
+containers on different nodes. If it is not running, containers
+on different nodes will not be able to connect to each other.
+openshift-sdn-master is required to provision the SDN subnets.`)
 			unitRequiresUnit(u["openshift-sdn-node"], u["openvswitch"], `
 The software-defined network (SDN) enables networking between
 containers on different nodes. Containers will not be able to
@@ -149,14 +200,34 @@ this traffic.`)
 			unitRequiresUnit(u["openshift"], u["iptables"], `
 iptables is used by OpenShift nodes for container networking.
 Connections to a container will fail without it.`)
+			// sdn-node's dependency on node is a special case.
+			// We do not need to enable node because sdn-note starts it for us.
+			if u["openshift-sdn-node"].Active && !u["openshift-node"].Active {
+				log.Error(`
+systemd unit openshift-sdn-node is running but openshift-node is not.
+Normally openshift-sdn-node starts openshift-node once initialized.
+It is likely that openshift-node has crashed or been stopped.
+
+An administrator can start openshift-node with:
+
+  # systemctl start openshift-node
+
+To ensure it is not repeatedly failing to run, check the status and logs with:
+
+  # systemctl status openshift-node
+  # journalctl -ru openshift-node `)
+			}
 			// Anything that is enabled but not running deserves notice
 			for name, unit := range u {
 				if unit.Enabled && !unit.Active {
 					log.Errorf(`
 The %s systemd unit is intended to start at boot but is not currently active.
 An administrator can start the %[1]s unit with:
+
   # systemctl start %[1]s
+
 To ensure it is not failing to run, check the status and logs with:
+
   # systemctl status %[1]s
   # journalctl -ru %[1]s`, name)
 				}

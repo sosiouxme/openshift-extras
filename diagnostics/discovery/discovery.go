@@ -156,7 +156,7 @@ func discoverSystemd(env *types.Environment) {
 		return
 	}
 	if env.HasSystemd { // discover units we care about
-		for _, name := range []string{"openshift", "openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "etcd", "kubernetes"} {
+		for _, name := range []string{"openshift", "openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "iptables", "etcd", "kubernetes"} {
 			if unit := discoverSystemdUnit(name); unit.Exists {
 				env.SystemdUnits[name] = unit
 				log.Debugf("Saw unit %s", name)
