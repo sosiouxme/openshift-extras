@@ -3,6 +3,9 @@ package log
 import (
 	"fmt"
 	ct "github.com/daviddengcn/go-colortext"
+	"golang.org/x/crypto/ssh/terminal"
+	"os"
+	"runtime"
 	"strings"
 )
 
@@ -24,6 +27,14 @@ var (
 var current Level = InfoLevel // default
 var warningsSeen int = 0
 var errorsSeen int = 0
+var ttyOutput bool = true
+
+func init() {
+	if runtime.GOOS == "linux" && !terminal.IsTerminal(int(os.Stdout.Fd())) {
+		// don't want color sequences in redirected output (logs, "less", etc.)
+		ttyOutput = false
+	}
+}
 
 func SetLevel(level int) {
 	switch level {
@@ -53,9 +64,13 @@ func Summary() {
 
 func Log(l Level, msg string) {
 	if l.Level <= current.Level {
-		ct.ChangeColor(l.Color, l.Bright, ct.None, false)
+		if ttyOutput {
+			ct.ChangeColor(l.Color, l.Bright, ct.None, false)
+		}
 		fmt.Println(l.Prefix + strings.Replace(msg, "\n", "\n       ", -1))
-		ct.ResetColor()
+		if ttyOutput {
+			ct.ResetColor()
+		}
 	}
 	if l.Level == ErrorLevel.Level {
 		errorsSeen += 1

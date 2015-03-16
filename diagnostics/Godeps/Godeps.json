@@ -256,6 +256,10 @@
 			"Rev": "f82776d6cc998e3c026baef7b24409ff49fe5c8d"
 		},
 		{
+			"ImportPath": "golang.org/x/crypto/ssh/terminal",
+			"Rev": "1351f936d976c60a0a48d728281922cf63eafb8d"
+		},
+		{
 			"ImportPath": "golang.org/x/net/context",
 			"Rev": "cbcac7bb8415db9b6cb4d1ebab1dc9afbd688b97"
 		},
