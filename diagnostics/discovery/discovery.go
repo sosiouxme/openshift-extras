@@ -185,20 +185,20 @@ func discoverSystemdUnit(name string) types.SystemdUnit {
 			unit.Exists = true
 		}
 		if val := attr["UnitFileState"]; val == "enabled" {
-			log.Infof("systemd unit '%s' is enabled - it will start automatically at boot.", name)
+			log.Debugf("systemd unit '%s' is enabled - it will start automatically at boot.", name)
 			unit.Enabled = true
 		} else {
-			log.Infof("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
+			log.Debugf("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
 		}
 		if val := attr["ActiveState"]; val == "active" {
-			log.Infof("systemd unit '%s' is currently running", name)
+			log.Debugf("systemd unit '%s' is currently running", name)
 			unit.Active = true
 		} else {
-			log.Infof("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
+			log.Debugf("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
 		}
 		fmt.Sscanf(attr["StatusErrno"], "%d", &unit.ExitStatus) // ignore errors...
 		if !unit.Active {
-			log.Infof("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
+			log.Debugf("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
 		}
 	}
 	return unit
