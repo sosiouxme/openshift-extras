@@ -11,26 +11,36 @@ import (
 	"regexp"
 )
 
-type LogMatcher struct { // regex for scanning log messages and interpreting them when found
-	Regexp         *regexp.Regexp
-	Interpretation string                                       // if it's simple
-	Interpret      func(logMsg string, matches []string) string // if logic is required
-	Level          log.Level
+type logEntry struct {
+	Message string // I feel certain we will want more fields at some point
 }
 
-type UnitSpec struct {
+type logMatcher struct { // regex for scanning log messages and interpreting them when found
+	Regexp         *regexp.Regexp
+	Level          log.Level
+	Interpretation string // log at above level if it's simple
+	KeepAfterMatch bool   // usually note only one log entry
+	Interpret      func(  // run this to do its own logic
+		env *types.Environment,
+		entry *logEntry,
+		matches []string,
+	) bool // KeepAfterMatch?
+}
+
+type unitSpec struct {
 	Name        string
 	StartMatch  *regexp.Regexp // regex to look for in log messages indicating startup
-	LogMatchers []LogMatcher   // suspect log patterns to check for - checked in order
+	LogMatchers []logMatcher   // suspect log patterns to check for - checked in order
 }
 
 //
 // -------- Things that feed into the diagnostics definitions -----------
-//
+// Search for Diagnostics for the actual diagnostics.
 
 // Reusable log matchers:
-var badImageTemplate = LogMatcher{
+var badImageTemplate = logMatcher{
 	Regexp: regexp.MustCompile(`Unable to find an image for .* due to an error processing the format: %!v\\(MISSING\\)`),
+	Level:  log.InfoLevel,
 	Interpretation: `
 This error indicates openshift was given the flag --images including an invalid format variable.
 Valid formats can include (literally) ${component} and ${version}.
@@ -39,22 +49,21 @@ such as a version which should be specified as e.g. v3.0, not ${v3.0}.
 Note that the --images flag may be supplied via the OpenShift master,
 node, or "openshift ex registry/router" invocations and should usually
 be the same for each.`,
-	Level: log.InfoLevel,
 }
 
 // Specify what units we can check and what to look for and say about it
-var unitLogSpecs = []UnitSpec{
-	UnitSpec{
+var unitLogSpecs = []*unitSpec{
+	&unitSpec{
 		Name:       "openshift-master",
 		StartMatch: regexp.MustCompile("Starting an OpenShift master"),
-		LogMatchers: []LogMatcher{
+		LogMatchers: []logMatcher{
 			badImageTemplate,
-			LogMatcher{
+			logMatcher{
 				Regexp:         regexp.MustCompile("Unable to decode an event from the watch stream: local error: unexpected message"),
 				Level:          log.InfoLevel,
 				Interpretation: "You can safely ignore this message.",
 			},
-			LogMatcher{
+			logMatcher{
 				Regexp: regexp.MustCompile("HTTP probe error: Get .*/healthz: dial tcp .*:10250: connection refused"),
 				Level:  log.InfoLevel,
 				Interpretation: `
@@ -66,23 +75,23 @@ logs after the node is actually available.`,
 			},
 		},
 	},
-	UnitSpec{
+	&unitSpec{
 		Name:        "openshift-sdn-master",
 		StartMatch:  regexp.MustCompile("Starting OpenShift SDN Master"),
-		LogMatchers: []LogMatcher{},
+		LogMatchers: []logMatcher{},
 	},
-	UnitSpec{
+	&unitSpec{
 		Name:       "openshift-node",
 		StartMatch: regexp.MustCompile("Starting an OpenShift node"),
-		LogMatchers: []LogMatcher{
+		LogMatchers: []logMatcher{
 			badImageTemplate,
 		},
 	},
-	UnitSpec{
+	&unitSpec{
 		Name:       "openshift-sdn-node",
 		StartMatch: regexp.MustCompile("Starting OpenShift SDN node"),
-		LogMatchers: []LogMatcher{
-			LogMatcher{
+		LogMatchers: []logMatcher{
+			logMatcher{
 				Regexp: regexp.MustCompile("Could not find an allocated subnet for this minion.*Waiting.."),
 				Level:  log.WarnLevel,
 				Interpretation: `
@@ -100,11 +109,11 @@ the problem if it is not working.`,
 			},
 		},
 	},
-	UnitSpec{
+	&unitSpec{
 		Name:       "docker",
 		StartMatch: regexp.MustCompile(`Starting Docker Application Container Engine.`), // RHEL Docker at least
-		LogMatchers: []LogMatcher{
-			LogMatcher{
+		LogMatchers: []logMatcher{
+			logMatcher{
 				Regexp: regexp.MustCompile(`Usage: docker \\[OPTIONS\\] COMMAND`),
 				Level:  log.ErrorLevel,
 				Interpretation: `
@@ -116,7 +125,7 @@ so check there for problems.
 
 The OpenShift node will not work on this host until this is resolved.`,
 			},
-			LogMatcher{ // generic error seen - do this last
+			logMatcher{ // generic error seen - do this last
 				Regexp: regexp.MustCompile(`\\slevel="fatal"\\s`),
 				Level:  log.ErrorLevel,
 				Interpretation: `
@@ -125,10 +134,10 @@ so the OpenShift node will not work on this host until it is resolved.`,
 			},
 		},
 	},
-	UnitSpec{
+	&unitSpec{
 		Name:        "openvswitch",
 		StartMatch:  regexp.MustCompile("Starting Open vSwitch"),
-		LogMatchers: []LogMatcher{},
+		LogMatchers: []logMatcher{},
 	},
 }
 
@@ -155,7 +164,7 @@ var Diagnostics = map[string]types.Diagnostic{
 			for _, unit := range unitLogSpecs {
 				if svc := env.SystemdUnits[unit.Name]; svc.Enabled || svc.Active {
 					log.Infof("Checking journalctl logs for '%s' unit", unit.Name)
-					matchLogsSinceLastStart(unit)
+					matchLogsSinceLastStart(unit, env)
 				}
 			}
 		},
@@ -277,7 +286,7 @@ An administrator can enable the %[2]s unit with:
 	}
 }
 
-func matchLogsSinceLastStart(unit UnitSpec) {
+func matchLogsSinceLastStart(unit *unitSpec, env *types.Environment) {
 	cmd := exec.Command("journalctl", "-ru", unit.Name, "--output=json")
 	// JSON comes out of journalctl one line per record
 	lineReader, reader, err := func(cmd *exec.Cmd) (*bufio.Scanner, io.ReadCloser, error) {
@@ -298,11 +307,12 @@ func matchLogsSinceLastStart(unit UnitSpec) {
 		reader.Close()
 		cmd.Wait()
 	}()
-	var entryTemplate struct {
-		Message string `json:"MESSAGE"` // I feel certain we will want more fields at some point
-	}
-	matchCopy := append([]LogMatcher(nil), unit.LogMatchers...) // make a copy, will remove matchers after they match something
+	entryTemplate := logEntry{Message: `json:"MESSAGE"`}
+	matchCopy := append([]logMatcher(nil), unit.LogMatchers...) // make a copy, will remove matchers after they match something
 	for lineReader.Scan() {                                     // each log entry is a line
+		if len(matchCopy) == 0 { // if no rules remain to match
+			break // don't waste time reading more log entries
+		}
 		bytes, entry := lineReader.Bytes(), entryTemplate
 		if err := json.Unmarshal(bytes, &entry); err != nil {
 			log.Debugf("Couldn't read the JSON for this log message:\n%v\nGot error (%T) %v", bytes, err, err)
@@ -313,13 +323,16 @@ func matchLogsSinceLastStart(unit UnitSpec) {
 			for index, match := range matchCopy { // match log message against provided matchers
 				if strings := match.Regexp.FindStringSubmatch(entry.Message); strings != nil {
 					// if matches: print interpretation, remove from matchCopy, and go on to next log entry
-					prelude := fmt.Sprintf("Found  '%s' journald log message:\n  %s\n", unit.Name, entry.Message)
+					prelude := fmt.Sprintf("Found '%s' journald log message:\n  %s\n", unit.Name, entry.Message)
+					keep := match.KeepAfterMatch
 					if match.Interpret != nil {
-						log.Log(match.Level, prelude+match.Interpret(string(bytes), strings))
+						keep = match.Interpret(env, &entry, strings)
 					} else {
 						log.Log(match.Level, prelude+match.Interpretation)
 					}
-					matchCopy = append(matchCopy[:index], matchCopy[index+1:]...) // remove matcher once seen
+					if !keep { // remove matcher once seen
+						matchCopy = append(matchCopy[:index], matchCopy[index+1:]...)
+					}
 					break
 				}
 			}
