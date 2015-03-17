@@ -51,6 +51,9 @@ node, or "openshift ex registry/router" invocations and should usually
 be the same for each.`,
 }
 
+// captures for logMatcher Interpret functions to store state between matches
+var tlsClientErrorSeen map[string]bool
+
 // Specify what units we can check and what to look for and say about it
 var unitLogSpecs = []*unitSpec{
 	&unitSpec{
@@ -73,6 +76,65 @@ Since the master records are typically created before the node is
 available, this is not usually a problem, unless it continues in the
 logs after the node is actually available.`,
 			},
+			logMatcher{
+				Regexp: regexp.MustCompile("http: TLS handshake error from (\\S+): remote error: bad certificate"),
+				Level:  log.WarnLevel,
+				Interpret: func(env *types.Environment, entry *logEntry, matches []string) bool {
+					client := matches[1]
+					prelude := fmt.Sprintf("Found 'openshift-master' journald log message:\n  %s\n", entry.Message)
+					if tlsClientErrorSeen == nil { // first time this message was seen
+						tlsClientErrorSeen = map[string]bool{client: true}
+						log.Warn(prelude + `
+This error indicates that a client attempted to connect to the master
+HTTPS API server but broke off the connection because the master's
+certificate is not validated by a cerificate authority (CA) acceptable
+to the client. There are a number of ways this can occur, some more
+problematic than others.
+
+At this time, the OpenShift master certificate is signed by a private CA
+(created the first time the master runs) and clients should have a copy of
+that CA certificate in order to validate connections to the master. Most
+likely, either:
+1. the master has generated a new CA (after the administrator deleted
+   the old one) and the client has a copy of the old CA cert, or
+2. the client hasn't been configured with a private CA at all (or the
+   wrong one), or
+3. the client is attempting to reach the master at a URL that isn't
+   covered by the master's server certificate, e.g. a public-facing
+   name or IP that isn't known to the master automatically; this may
+   need to be specified with the --public-master flag on the master
+   in order to generate a new server certificate including it.
+
+Clients of the master may include users, nodes, and infrastructure
+components running as containers. Check the "from" IP address in the
+log message:
+* If it is from a SDN IP, it is likely from an infrastructure
+  component. Check pod logs and recreate it with the correct CA cert.
+  Routers and registries won't work properly with the wrong CA.
+* If it is from a node IP, the client is likely a node. Check the
+  openshift-node and openshift-sdn-node logs and reconfigure with the
+  correct CA cert. Nodes will be unable to create pods until this is
+  corrected.
+* If it is from an external IP, it is likely from a user (CLI, browser,
+  etc.). osc and openshift clients should be configured with the correct
+  CA cert; browsers can also add CA certs but it is usually easier
+  to just have them accept the server certificate on the first visit
+  (so this message may simply indicate that the master generated a new
+  server certificate, e.g. to add a different --public-master, and a
+  browser hasn't accepted it yet and is still attempting API calls;
+  try logging out of the console and back in again).`)
+					} else if !tlsClientErrorSeen[client] {
+						tlsClientErrorSeen[client] = true
+						log.Warn(prelude + `This message was diagnosed above, but for a different client address.`)
+					} // else, it's a repeat, don't mention it
+					return true // show once for every client failing to connect, not just the first
+				},
+			},
+			logMatcher{
+				Regexp:         regexp.MustCompile("user &{system:anonymous  [system:unauthenticated]} -> /api/v1beta1/services?namespace="),
+				Level:          log.InfoLevel,
+				Interpretation: ``,
+			},
 		},
 	},
 	&unitSpec{
@@ -85,6 +147,30 @@ logs after the node is actually available.`,
 		StartMatch: regexp.MustCompile("Starting an OpenShift node"),
 		LogMatchers: []logMatcher{
 			badImageTemplate,
+			logMatcher{
+				Regexp: regexp.MustCompile("Unable to load services: Get (http\\S+/api/v1beta1/services?namespace=): (.+)"), // e.g. x509: certificate signed by unknown authority
+				Level:  log.ErrorLevel,
+				Interpretation: `
+openshift-node could not connect to the OpenShift master API in order
+to determine its responsibilities. This host will not function as a node
+until this is resolved. Pods scheduled for this node will remain in
+pending or unknown state forever.`,
+			},
+			logMatcher{
+				Regexp: regexp.MustCompile(`Unable to load services: request.*403 Forbidden: Forbidden: "/api/v1beta1/services\\?namespace=" denied by default`),
+				Level:  log.ErrorLevel,
+				Interpretation: `
+openshift-node could not connect to the OpenShift master API to determine
+its responsibilities because it lacks the proper credentials. Nodes
+should specify a client certificate in order to identify themselves to
+the master. This message typically means that either no client key/cert
+was supplied, or it is not validated by the certificate authority (CA)
+the master uses. You should supply a correct client key and certificate
+to the .kubeconfig specified in /etc/sysconfig/openshift-node
+
+This host will not function as a node until this is resolved. Pods
+scheduled for this node will remain in pending or unknown state forever.`,
+			},
 		},
 	},
 	&unitSpec{
@@ -154,7 +240,7 @@ var systemdRelevant = func(env *types.Environment) (skip bool, reason string) {
 	if !env.HasSystemd {
 		return true, "systemd is not present on this host"
 	} else if env.OpenshiftPath == "" {
-		return true, "`openshift` binary not in the path on this host; for now, we assume host is not a server"
+		return true, "`openshift` binary is not in the path on this host; we assume host is not a server"
 	}
 	return false, ""
 }
@@ -166,12 +252,12 @@ var systemdRelevant = func(env *types.Environment) (skip bool, reason string) {
 var Diagnostics = map[string]types.Diagnostic{
 
 	"AnalyzeLogs": types.Diagnostic{
-		Description: "Check journald for known problems in relevant systemd unit logs",
+		Description: "Check for problems in systemd service logs since each service last started",
 		Condition:   systemdRelevant,
 		Run: func(env *types.Environment) {
 			for _, unit := range unitLogSpecs {
 				if svc := env.SystemdUnits[unit.Name]; svc.Enabled || svc.Active {
-					log.Infof("Checking journalctl logs for '%s' unit", unit.Name)
+					log.Infof("Checking journalctl logs for '%s' service", unit.Name)
 					matchLogsSinceLastStart(unit, env)
 				}
 			}
