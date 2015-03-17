@@ -284,10 +284,6 @@ The software-defined network (SDN) enables networking between containers
 on different nodes, coordinated via openshift-sdn-master. It does not
 make sense to run this service unless the host is operating as an
 OpenShift master.`)
-			unitRequiresUnit(u["openshift-node"], u["openshift-sdn-node"], `
-The software-defined network (SDN) enables networking between
-containers on different nodes. If it is not running, containers
-on different nodes will not be able to connect to each other.`)
 			// TODO: sdn+ovs will probably not be the only implementation - make this generic
 			unitRequiresUnit(u["openshift-master"], u["openshift-sdn-master"], `
 The software-defined network (SDN) enables networking between
