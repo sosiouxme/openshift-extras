@@ -77,13 +77,15 @@ available, this is not usually a problem, unless it continues in the
 logs after the node is actually available.`,
 			},
 			logMatcher{
-				Regexp: regexp.MustCompile("http: TLS handshake error from (\\S+): remote error: bad certificate"),
+				// TODO: don't rely on ipv4 format, should be ipv6 "soon"
+				Regexp: regexp.MustCompile("http: TLS handshake error from ([\\d.]+):\\d+: remote error: bad certificate"),
 				Level:  log.WarnLevel,
 				Interpret: func(env *types.Environment, entry *logEntry, matches []string) bool {
 					client := matches[1]
 					prelude := fmt.Sprintf("Found 'openshift-master' journald log message:\n  %s\n", entry.Message)
 					if tlsClientErrorSeen == nil { // first time this message was seen
 						tlsClientErrorSeen = map[string]bool{client: true}
+						// TODO: too generic, adjust message depending on subnet of the "from" address
 						log.Warn(prelude + `
 This error indicates that a client attempted to connect to the master
 HTTPS API server but broke off the connection because the master's
@@ -131,9 +133,23 @@ log message:
 				},
 			},
 			logMatcher{
-				Regexp:         regexp.MustCompile("user &{system:anonymous  [system:unauthenticated]} -> /api/v1beta1/services?namespace="),
-				Level:          log.InfoLevel,
-				Interpretation: ``,
+				// user &{system:anonymous  [system:unauthenticated]} -> /api/v1beta1/services?namespace="
+				Regexp: regexp.MustCompile("system:anonymous\\W*system:unauthenticated\\W*/api/v1beta1/services\\?namespace="),
+				Level:  log.WarnLevel,
+				Interpretation: `
+This indicates the OpenShift API server (master) received an unscoped
+request to get Services. Requests like this probably come from an
+OpenShift node trying to discover where it should proxy services.
+
+However, the request was unauthenticated, so it was denied. The node
+either did not offer a client certificate for credential, or offered an
+invalid one (not signed by the certificate authority the master uses).
+The node will not be able to function without this access.
+
+Unfortunately, this message does not tell us *which* node is the
+problem. But running diagnostics on your node hosts should find a log
+message on any with this problem.
+`,
 			},
 		},
 	},
