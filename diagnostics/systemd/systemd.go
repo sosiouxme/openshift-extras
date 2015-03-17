@@ -148,7 +148,7 @@ log message:
 		LogMatchers: []logMatcher{
 			badImageTemplate,
 			logMatcher{
-				Regexp: regexp.MustCompile("Unable to load services: Get (http\\S+/api/v1beta1/services?namespace=): (.+)"), // e.g. x509: certificate signed by unknown authority
+				Regexp: regexp.MustCompile("Unable to load services: Get (http\\S+/api/v1beta1/services\\?namespace=): (.+)"), // e.g. x509: certificate signed by unknown authority
 				Level:  log.ErrorLevel,
 				Interpretation: `
 openshift-node could not connect to the OpenShift master API in order
@@ -157,7 +157,7 @@ until this is resolved. Pods scheduled for this node will remain in
 pending or unknown state forever.`,
 			},
 			logMatcher{
-				Regexp: regexp.MustCompile(`Unable to load services: request.*403 Forbidden: Forbidden: "/api/v1beta1/services\\?namespace=" denied by default`),
+				Regexp: regexp.MustCompile(`Unable to load services: request.*403 Forbidden: Forbidden: "/api/v1beta1/services\?namespace=" denied by default`),
 				Level:  log.ErrorLevel,
 				Interpretation: `
 openshift-node could not connect to the OpenShift master API to determine
