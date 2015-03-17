@@ -105,7 +105,15 @@ available and define a record for the node (aka "minion") to use,
 and openshift-sdn-node will wait until that occurs, so the presence
 of this message in the node log isn't necessarily a problem as
 long as the SDN is actually working, but this message may help indicate
-the problem if it is not working.`,
+the problem if it is not working.
+
+If the master is available and this node's record is defined and this
+message persists, then it may be a sign of a different misconfiguration.
+Unfortunately the message is not specific about why the connection failed.
+Check MASTER_URL in /etc/sysconfig/openshift-sdn-node:
+ * Is the protocol https? It should be http.
+ * Can you reach the address and port from the node using curl?
+   ("404 page not found" is correct response)`,
 			},
 		},
 	},
