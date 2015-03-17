@@ -72,6 +72,8 @@ useful to use this as a base if available.`, cc)
 				invalidCertNameRx := regexp.MustCompile("x509: certificate is valid for (\\S+, )+not (\\S+)")
 				connRefusedRx := regexp.MustCompile("dial tcp (\\S+): connection refused")
 				connTimeoutRx := regexp.MustCompile("dial tcp (\\S+): connection timed out")
+				unauthenticatedMsg := `403 Forbidden: Forbidden: "/osapi/v1beta1/projects?namespace=" denied by default`
+
 				malformedHTTPMsg := "malformed HTTP response"
 				malformedTLSMsg := "tls: oversized record received with length"
 
@@ -144,7 +146,7 @@ but this is risky and should not be necessary.
 ** Connections could be intercepted and your credentials stolen. **
 `, serverHost)
 				case connRefusedRx.MatchString(msg):
-					reason = fmt.Sprintf(`
+					reason = `
 This means that when we tried to connect to the OpenShift API
 server (master), we reached the host, but nothing accepted the port
 connection. This could mean that the OpenShift master is stopped, or
@@ -152,10 +154,9 @@ that a firewall or security policy is blocking access at that port.
 
 You will not be able to connect or do anything at all with OpenShift
 until this server problem is resolved or you specify a corrected
-server address.
-`)
+server address.`
 				case connTimeoutRx.MatchString(msg):
-					reason = fmt.Sprintf(`
+					reason = `
 This means that when we tried to connect to the OpenShift API server
 (master), we could not reach the host at all.
 * You may have specified the wrong host address.
@@ -164,10 +165,9 @@ This means that when we tried to connect to the OpenShift API server
   drops requests rather than responding by reseting the connection.
 * It does not generally mean that DNS name resolution failed (which
   would be a different error) though the problem could be that it
-  gave the wrong address.
-`)
+  gave the wrong address.`
 				case strings.Contains(msg, malformedHTTPMsg):
-					reason = fmt.Sprintf(`
+					reason = `
 This means that when we tried to connect to the OpenShift API server
 (master) with a plain HTTP connection, the server did not speak
 HTTP back to us. The most common explanation is that a secure server
@@ -177,10 +177,9 @@ speaking some other protocol entirely.
 
 You will not be able to connect or do anything at all with OpenShift
 until this server problem is resolved or you specify a corrected
-server address.
-`)
+server address.`
 				case strings.Contains(msg, malformedTLSMsg):
-					reason = fmt.Sprintf(`
+					reason = `
 This means that when we tried to connect to the OpenShift API server
 (master) with a secure HTTPS connection, the server did not speak
 HTTPS back to us. The most common explanation is that the server
@@ -190,8 +189,14 @@ listening there, or you may have specified an incorrect port.
 
 You will not be able to connect or do anything at all with OpenShift
 until this server problem is resolved or you specify a corrected
-server address.
-`)
+server address.`
+				case strings.Contains(msg, unauthenticatedMsg):
+					reason = `
+This means that when we tried to make a request to the OpenShift API
+server, your kubeconfig did not present valid credentials to
+authenticate your client. Credentials generally consist of a client
+key/certificate or an access token. Your kubeconfig may not have
+presented any, or they may be invalid.`
 				default:
 					reason = `Diagnostics does not have an explanation for what this means. Please report this error so one can be added.`
 				}
