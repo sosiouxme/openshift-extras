@@ -279,7 +279,7 @@ place it in a standard location.
 		return file
 	}
 	// look for it in $HOME
-	if file = openKubeconfig(os.Getenv("HOME")+"/.kubeconfig", ""); file != nil {
+	if file = openKubeconfig(os.Getenv("HOME")+"/.kube/.kubeconfig", ""); file != nil {
 		return file
 	}
 	// look for it in auto-generated locations
