@@ -37,7 +37,8 @@ func NewCommand() *cobra.Command {
 	// callback function for when this command is invoked
 	cmd.Run = func(c *cobra.Command, args []string) {
 		log.SetLevel(diagFlags.LogLevel)
-		c.SetOutput(os.Stdout) // TODO: does this matter?
+		c.SetOutput(os.Stdout)             // TODO: does this matter?
+		log.SetLogFormat(diagFlags.Format) // ignore error
 		env := discovery.Run(&diagFlags)
 		// set up openshift/kube client objects
 		env.Command = c
@@ -47,13 +48,15 @@ func NewCommand() *cobra.Command {
 		Diagnose(env)
 		// summarize...
 		log.Summary()
+		log.Finish()
 	}
 
 	cmd.AddCommand(newVersionCommand("version"))
 	// Add flags separately from those inherited from the client
 	cmd.Flags().IntVarP(&diagFlags.LogLevel, "loglevel", "l", 2, "Level of output: 0 = Error, 1 = Warn, 2 = Info, 3 = Debug")
-	cmd.Flags().StringVarP(&diagFlags.OpenshiftPath, "openshift", "O", "", "Path to 'openshift' binary")
-	cmd.Flags().StringVarP(&diagFlags.OscPath, "osc", "o", "", "Path to 'osc' client binary")
+	cmd.Flags().StringVarP(&diagFlags.Format, "output", "o", "text", "Output format: text|json|yaml")
+	cmd.Flags().StringVarP(&diagFlags.OpenshiftPath, "openshift", "", "", "Path to 'openshift' binary")
+	cmd.Flags().StringVarP(&diagFlags.OscPath, "osc", "", "", "Path to 'osc' client binary")
 
 	return cmd
 }

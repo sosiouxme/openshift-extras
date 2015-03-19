@@ -9,5 +9,6 @@ type Flags struct {
 	OpenshiftPath  string
 	OscPath        string
 	OpenshiftFlags *flag.FlagSet
+	Format         string
 	//	KubeconfigPath string
 }

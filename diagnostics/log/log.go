@@ -1,40 +1,31 @@
 package log
 
 import (
+	"errors"
 	"fmt"
 	ct "github.com/daviddengcn/go-colortext"
-	"golang.org/x/crypto/ssh/terminal"
-	"os"
-	"runtime"
 	"strings"
 )
 
 type Level struct {
 	Level  int
+	Name   string
 	Prefix string
 	Color  ct.Color
 	Bright bool
 }
 
 var (
-	ErrorLevel  = Level{0, "ERROR: ", ct.Red, true}
-	WarnLevel   = Level{1, "WARN:  ", ct.Yellow, true}
-	InfoLevel   = Level{2, "Info:  ", ct.None, false}
-	NoticeLevel = Level{2, "[Note] ", ct.White, false}
-	DebugLevel  = Level{3, "debug: ", ct.None, false}
+	ErrorLevel  = Level{0, "error", "ERROR: ", ct.Red, true}
+	WarnLevel   = Level{1, "warn", "WARN:  ", ct.Yellow, true}
+	InfoLevel   = Level{2, "info", "Info:  ", ct.None, false}
+	NoticeLevel = Level{2, "note", "[Note] ", ct.White, false}
+	DebugLevel  = Level{3, "debug", "debug: ", ct.None, false}
 )
 
 var current Level = InfoLevel // default
 var warningsSeen int = 0
 var errorsSeen int = 0
-var ttyOutput bool = true
-
-func init() {
-	if runtime.GOOS == "linux" && !terminal.IsTerminal(int(os.Stdout.Fd())) {
-		// don't want color sequences in redirected output (logs, "less", etc.)
-		ttyOutput = false
-	}
-}
 
 func SetLevel(level int) {
 	switch level {
@@ -49,13 +40,37 @@ func SetLevel(level int) {
 	}
 }
 
+//
+// Deal with different log formats
+//
+type loggerType interface {
+	Write(Level, string)
+	Finish()
+}
+
+var logger loggerType = &textLogger{} // default
+func SetLogFormat(format string) error {
+	logger = &textLogger{} // default
+	switch format {
+	case "json":
+		logger = &jsonLogger{}
+	case "yaml":
+		logger = &yamlLogger{}
+	case "text":
+	default:
+		return errors.New("Output format must be one of: text, json, yaml")
+	}
+	return nil
+}
+
+// Provide a summary at the end
 func Summary() {
-	fmt.Println("\nSummary of diagnostics execution:")
+	Log(InfoLevel, "\nSummary of diagnostics execution:\n")
 	if warningsSeen > 0 {
-		Log(WarnLevel, fmt.Sprintf("Warnings seen: %d", warningsSeen))
+		Log(InfoLevel, fmt.Sprintf("Warnings seen: %d", warningsSeen))
 	}
 	if errorsSeen > 0 {
-		Log(ErrorLevel, fmt.Sprintf("Errors seen: %d", errorsSeen))
+		Log(InfoLevel, fmt.Sprintf("Errors seen: %d", errorsSeen))
 	}
 	if warningsSeen == 0 && errorsSeen == 0 {
 		Log(InfoLevel, "Completed with no errors or warnings seen.")
@@ -64,13 +79,7 @@ func Summary() {
 
 func Log(l Level, msg string) {
 	if l.Level <= current.Level {
-		if ttyOutput {
-			ct.ChangeColor(l.Color, l.Bright, ct.None, false)
-		}
-		fmt.Println(l.Prefix + strings.Replace(msg, "\n", "\n       ", -1))
-		if ttyOutput {
-			ct.ResetColor()
-		}
+		logger.Write(l, msg)
 	}
 	if l.Level == ErrorLevel.Level {
 		errorsSeen += 1
@@ -114,10 +123,15 @@ func Debugf(msg string, a ...interface{}) {
 	Debug(fmt.Sprintf(msg, a...))
 }
 
+// turn excess lines into [...]
 func LimitLines(msg string, n int) string {
 	lines := strings.SplitN(msg, "\n", n+1)
 	if len(lines) == n+1 {
 		lines[n] = "[...]"
 	}
 	return strings.Join(lines, "\n")
+}
+
+func Finish() {
+	logger.Finish()
 }
