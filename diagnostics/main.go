@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/openshift/openshift-extras/diagnostics/cmd"
+	"./cmd"
 	"os"
 )
 

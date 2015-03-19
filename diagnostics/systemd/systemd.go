@@ -1,11 +1,11 @@
 package systemd
 
 import (
+	"../log"
+	"../types"
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"github.com/openshift/openshift-extras/diagnostics/log"
-	"github.com/openshift/openshift-extras/diagnostics/types"
 	"io"
 	"os/exec"
 	"regexp"

@@ -11,4 +11,4 @@ GODEP_DIR = Godeps/_workspace
 #   make
 #   make build
 all build:
-	GOPATH=`pwd`/${GODEP_DIR}:${GOPATH} go build
+	GOPATH=`pwd`/${GODEP_DIR}:${GOPATH} go build -o diagnostics main.go
