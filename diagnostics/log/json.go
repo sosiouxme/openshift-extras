@@ -6,8 +6,8 @@ import (
 )
 
 type jsonMessageType struct {
-	Message string
-	Level   string
+	Message string `json:"message"`
+	Level   string `json:"level"`
 }
 type jsonLogger struct {
 	logStarted  bool
