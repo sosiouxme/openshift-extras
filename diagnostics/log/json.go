@@ -5,24 +5,20 @@ import (
 	"fmt"
 )
 
-type mapss map[string]string
 type jsonLogger struct {
 	logStarted  bool
 	logFinished bool
-	jsonMessage mapss
 }
 
-func (j *jsonLogger) Write(l Level, msg string) {
+func (j *jsonLogger) Write(l Level, msg Msg) {
 	if j.logStarted {
 		fmt.Println(",")
 	} else {
 		fmt.Println("[")
-		j.jsonMessage = make(mapss)
 	}
 	j.logStarted = true
-	j.jsonMessage["message"] = msg
-	j.jsonMessage["level"] = l.Name
-	b, _ := json.MarshalIndent(j.jsonMessage, "  ", "  ")
+	msg["level"] = l.Name
+	b, _ := json.MarshalIndent(msg, "  ", "  ")
 	fmt.Print("  " + string(b))
 }
 func (j *jsonLogger) Finish() {

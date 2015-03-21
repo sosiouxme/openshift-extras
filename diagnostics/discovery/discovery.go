@@ -19,7 +19,7 @@ import (
 // ----------------------------------------------------------
 // Examine system and return findings in an Environment
 func Run(fl *flags.Flags) *types.Environment {
-	log.Notice("Beginning discovery of environment")
+	log.Notice("discBegin", "Beginning discovery of environment")
 	env := &types.Environment{Flags: fl, SystemdUnits: make(map[string]types.SystemdUnit)}
 	operatingSystemDiscovery(env)
 	clientDiscovery(env)
@@ -45,7 +45,7 @@ func operatingSystemDiscovery(env *types.Environment) {
 // ----------------------------------------------------------
 // Look for 'osc' and 'openshift' executables
 func clientDiscovery(env *types.Environment) (err error) {
-	log.Debug("Searching for executables in path:\n  " + strings.Join(filepath.SplitList(os.Getenv("PATH")), "\n  ")) //TODO for non-Linux OS
+	log.Debug("discSearchExec", "Searching for executables in path:\n  "+strings.Join(filepath.SplitList(os.Getenv("PATH")), "\n  ")) //TODO for non-Linux OS
 	env.OscPath = findExecAndLog("osc", env, env.Flags.OscPath)
 	if env.OscPath != "" {
 		env.OscVersion, err = getExecVersion(env.OscPath)
@@ -55,7 +55,8 @@ func clientDiscovery(env *types.Environment) (err error) {
 		env.OpenshiftVersion, err = getExecVersion(env.OpenshiftPath)
 	}
 	if env.OpenshiftVersion.NonZero() && env.OscVersion.NonZero() && !env.OpenshiftVersion.Eq(env.OscVersion) {
-		log.Warnf("'openshift' version %#v does not match 'osc' version %#v; update or remove the lower version", env.OpenshiftVersion, env.OscVersion)
+		log.Warnm("discVersionMM", log.Msg{"osV": env.OpenshiftVersion.GoString(), "oscV": env.OscVersion.GoString(),
+			"text": fmt.Sprintf("'openshift' version %#v does not match 'osc' version %#v; update or remove the lower version", env.OpenshiftVersion, env.OscVersion)})
 	}
 	return err
 }
@@ -65,24 +66,27 @@ func clientDiscovery(env *types.Environment) (err error) {
 func findExecAndLog(cmd string, env *types.Environment, pathflag string) string {
 	if pathflag != "" { // look for it where the user said it would be
 		if filepath.Base(pathflag) != cmd {
-			log.Errorf(`
-You specified that '%s' should be found at:
-  %s
-but that file has the wrong name. The file name determines available functionality and must match.`, cmd, pathflag)
+			log.Errorm("discExecFlag", log.Msg{"command": cmd, "path": pathflag, "tmpl": `
+You specified that '{{.command}}' should be found at:
+  {{.path}}
+  but that file has the wrong name. The file name determines available functionality and must match.`})
 		} else if _, err := exec.LookPath(pathflag); err == nil {
-			log.Infof("Specified '%v' is executable at %v", cmd, pathflag)
+			log.Infom("discExecFound", log.Msg{"command": cmd, "path": pathflag,
+				"tmpl": "Specified '{{.command}}' is executable at {{.path}}"})
 			return pathflag
 		} else if _, err := os.Stat(pathflag); os.IsNotExist(err) {
-			log.Errorf("You specified that '%s' should be at %s\nbut that file does not exist.", cmd, pathflag)
+			log.Errorm("discExecNoExist", log.Msg{"command": cmd, "path": pathflag,
+				"tmpl": "You specified that '{{.command}}' should be at {{.path}}\nbut that file does not exist."})
 		} else {
-			log.Errorf("You specified that '%s' should be at %s\nbut that file is not executable.", cmd, pathflag)
+			log.Errorm("discExecNot", log.Msg{"command": cmd, "path": pathflag,
+				"tmpl": "You specified that '{{.command}}' should be at {{.path}}\nbut that file is not executable."})
 		}
 	} else { // look for it in the path
 		path := findExecFor(cmd)
 		if path == "" {
-			log.Warnf("No '%v' executable was found in your path", cmd)
+			log.Warnm("discExecNoPath", log.Msg{"command": cmd, "tmpl": "No '{{.command}}' executable was found in your path"})
 		} else {
-			log.Infof("Found '%v' at %v", cmd, path)
+			log.Infom("discExecFound", log.Msg{"command": cmd, "path": path, "tmpl": "Found '{{.command}}' at {{.path}}"})
 			return path
 		}
 	}
@@ -116,9 +120,9 @@ func getExecVersion(path string) (version types.Version, err error) {
 		var x, y, z int
 		if scanned, err := fmt.Sscanf(string(out), "%s v%d.%d.%d", &name, &x, &y, &z); scanned > 1 {
 			version = types.Version{x, y, z}
-			log.Infof("version of %s is %#v", name, version)
+			log.Infom("discVersion", log.Msg{"tmpl": "version of {{.command}} is {{.version}}", "command": name, "version": version.GoString()})
 		} else {
-			log.Errorf(`
+			log.Errorf("discVersErr", `
 Expected version output from '%s version'
 Could not parse output received:
 %v
@@ -127,16 +131,16 @@ Error was: %#v`, path, string(out), err)
 	} else {
 		switch err.(type) {
 		case *exec.Error:
-			log.Errorf("error in executing '%v version': %v", path, err)
+			log.Errorf("discVersErr", "error in executing '%v version': %v", path, err)
 		case *exec.ExitError:
-			log.Errorf(`
+			log.Errorf("discVersErr", `
 Executed '%v version' which exited with an error code.
 This version is likely old or broken.
 Error was '%v';
 Output was:
 %v`, path, err.Error(), log.LimitLines(string(out), 5))
 		default:
-			log.Errorf("executed '%v version' but an error occurred:\n%v\nOutput was:\n%v", path, err, string(out))
+			log.Errorf("discVersErr", "executed '%v version' but an error occurred:\n%v\nOutput was:\n%v", path, err, string(out))
 		}
 	}
 	return version, err
@@ -159,17 +163,17 @@ func discoverSystemd(env *types.Environment) {
 		for _, name := range []string{"openshift", "openshift-master", "openshift-node", "openshift-sdn-master", "openshift-sdn-node", "docker", "openvswitch", "iptables", "etcd", "kubernetes"} {
 			if unit := discoverSystemdUnit(name); unit.Exists {
 				env.SystemdUnits[name] = unit
-				log.Debugf("Saw unit %s", name)
+				log.Debugm("discUnit", log.Msg{"tmpl": "Saw systemd unit {{.unit}}", "unit": name})
 			}
 		}
 	}
-	log.Debugf("%v", env.SystemdUnits)
+	log.Debugf("discUnits", "%v", env.SystemdUnits)
 }
 
 func discoverSystemdUnit(name string) types.SystemdUnit {
 	unit := types.SystemdUnit{Name: name, Exists: false}
 	if output, err := exec.Command("systemctl", "show", name).Output(); err != nil {
-		log.Errorf("Error running `systemctl show %s`: %v\nCannot analyze systemd units.", name, err)
+		log.Errorm("discCtlErr", log.Msg{"tmpl": "Error running `systemctl show {{.unit}}`: {{.error}}\nCannot analyze systemd units.", "unit": name, "error": err.Error()})
 	} else {
 		attr := make(map[string]string)
 		for _, line := range strings.Split(string(output), "\n") {
@@ -179,27 +183,25 @@ func discoverSystemdUnit(name string) types.SystemdUnit {
 			}
 		}
 		if val := attr["LoadState"]; val != "loaded" {
-			log.Debugf("systemd unit '%s' does not exist. LoadState is '%s'", name, val)
+			log.Debugm("discUnitENoExist", log.Msg{"tmpl": "systemd unit '{{.unit}}' does not exist. LoadState is '{{.state}}'", "unit": name, "state": val})
 			return unit // doesn't exist - leave everything blank
 		} else {
 			unit.Exists = true
 		}
 		if val := attr["UnitFileState"]; val == "enabled" {
-			log.Debugf("systemd unit '%s' is enabled - it will start automatically at boot.", name)
+			log.Debugm("discUnitEnabled", log.Msg{"tmpl": "systemd unit '{{.unit}}' is enabled - it will start automatically at boot.", "unit": name})
 			unit.Enabled = true
 		} else {
-			log.Debugf("systemd unit '%s' is not enabled - it does not start automatically at boot. UnitFileState is '%s'", name, val)
+			log.Debugm("discUnitNoEnable", log.Msg{"tmpl": "systemd unit '{{.unit}}' is not enabled - it does not start automatically at boot. UnitFileState is '{{.state}}'", "unit": name, "state": val})
 		}
 		if val := attr["ActiveState"]; val == "active" {
-			log.Debugf("systemd unit '%s' is currently running", name)
+			log.Debugm("discUnitActive", log.Msg{"tmpl": "systemd unit '{{.unit}}' is currently running", "unit": name})
 			unit.Active = true
 		} else {
-			log.Debugf("systemd unit '%s' is not currently running. ActiveState is '%s'", name, val)
+			log.Debugm("discUnitNoActive", log.Msg{"unit": name, "state": val, "exit": unit.ExitStatus,
+				"tmpl": "systemd unit '{{.unit}}' is not currently running. ActiveState is '{{.state}}'; exit code was {{.exit}}."})
 		}
 		fmt.Sscanf(attr["StatusErrno"], "%d", &unit.ExitStatus) // ignore errors...
-		if !unit.Active {
-			log.Debugf("Systemd unit '%s' exit code was %d", name, unit.ExitStatus)
-		}
 	}
 	return unit
 }
@@ -218,16 +220,16 @@ what we find as we go along, and try to be helpful.
 func readKubeconfig(env *types.Environment) {
 	file := findKubeconfig(env)
 	if file == nil {
-		log.Warn("No .kubeconfig read; default OpenShift config will be used, which is likely not what you want.")
+		log.Warn("discNoKC", "No .kubeconfig read; default OpenShift config will be used, which is likely not what you want.")
 	} else {
 		defer file.Close()
 		if buffer, err := ioutil.ReadAll(file); err != nil {
-			log.Errorf("Unexpected error while reading .kubeconfig file (%s): %v", file.Name(), err)
+			log.Errorf("discKCReadErr", "Unexpected error while reading .kubeconfig file (%s): %v", file.Name(), err)
 		} else {
 			config := &clientcmdapi.Config{}
 			if err := clientcmdlatest.Codec.DecodeInto(buffer, config); err != nil {
 				// XXX: in post-0.4 rebase, becomes clientcmd.Load(buffer) - if we care
-				log.Errorf(`Error reading YAML from kubeconfig file (%s):
+				log.Errorf("discKCYamlErr", `Error reading YAML from kubeconfig file (%s):
   %v
 This file may have been truncated or mis-edited.
 Please fix or get a new .kubeconfig`, file.Name(), err)
@@ -239,10 +241,10 @@ Please fix or get a new .kubeconfig`, file.Name(), err)
 				 * into an actual configuration that the client uses.
 				 */
 				env.Kubeconfig = config
-				log.Infof(`Successfully read a .kubeconfig file at '%s';
+				log.Infom("discKCRead", log.Msg{"tmpl": `Successfully read a .kubeconfig file at '{{.path}}';
 be aware that the actual configuration used later may be different
 due to environment variables, flags, and other .kubeconfig files
-being merged together.`, file.Name())
+being merged together.`, "path": file.Name()})
 			}
 		}
 	}
@@ -282,16 +284,16 @@ place it in a standard location.
 	if file = openKubeconfig(os.Getenv("HOME")+"/.kube/.kubeconfig", ""); file != nil {
 		return file
 	}
-	// look for it in auto-generated locations
+	// look for it in auto-generated locations when not found properly
 	if file = openKubeconfig(adminPath1, ""); file != nil {
 		file.Close()
 		file = nil
-		log.Warnf(adminWarningF, adminPath1, adminPath1)
+		log.Warnf("discKCautoPath", adminWarningF, adminPath1, adminPath1)
 	}
 	if file = openKubeconfig(adminPath2, ""); file != nil {
 		file.Close()
 		file = nil
-		log.Warnf(adminWarningF, adminPath2, adminPath2)
+		log.Warnf("discKCautoPath", adminWarningF, adminPath2, adminPath2)
 	}
 	return file
 }
@@ -303,15 +305,15 @@ func openKubeconfig(path string, errmsg string) (file *os.File) {
 	var err error
 	if path != "" {
 		if file, err = os.Open(path); err == nil {
-			log.Infof("Reading .kubeconfig at %s", path)
+			log.Infom("discOpenKC", log.Msg{"tmpl": "Reading .kubeconfig at {{.path}}", "path": path})
 		} else if errmsg == "" {
-			log.Debugf("Could not read .kubeconfig at %s:\n%#v", path, err)
+			log.Debugf("discOpenKCNo", "Could not read .kubeconfig at %s:\n%#v", path, err)
 		} else if os.IsNotExist(err) {
-			log.Error(errmsg + "but that file does not exist.")
+			log.Error("discOpenKCNoExist", errmsg+"but that file does not exist.")
 		} else if os.IsPermission(err) {
-			log.Error(errmsg + "but lack permission to read that file.")
+			log.Error("discOpenKCNoPerm", errmsg+"but lack permission to read that file.")
 		} else if err != nil {
-			log.Errorf("%sbut there was an error opening it:\n%#v", errmsg, err)
+			log.Errorf("discOpenKCErr", "%sbut there was an error opening it:\n%#v", errmsg, err)
 		} // else it is open for reading
 	}
 	return file

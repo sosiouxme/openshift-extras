@@ -20,11 +20,11 @@ func init() {
 
 type textLogger struct{}
 
-func (t *textLogger) Write(l Level, msg string) {
+func (t *textLogger) Write(l Level, msg Msg) {
 	if ttyOutput {
 		ct.ChangeColor(l.Color, l.Bright, ct.None, false)
 	}
-	fmt.Println(l.Prefix + strings.Replace(msg, "\n", "\n       ", -1))
+	fmt.Println(l.Prefix + strings.Replace(fmt.Sprintf("%v", msg["text"]), "\n", "\n       ", -1))
 	if ttyOutput {
 		ct.ResetColor()
 	}

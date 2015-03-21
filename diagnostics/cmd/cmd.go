@@ -82,14 +82,17 @@ func Diagnose(env *types.Environment) {
 			if d.Condition != nil {
 				if skip, reason := d.Condition(env); skip {
 					if reason == "" {
-						log.Noticef("Skipping diagnostic: %s.%s\nDescription: %s", area, name, d.Description)
+						log.Noticem("diagSkip", log.Msg{"area": area, "name": name, "diag": d.Description,
+							"tmpl": "Skipping diagnostic: {{.area}}.{{.name}}\nDescription: {{.diag}}"})
 					} else {
-						log.Noticef("Skipping diagnostic: %s.%s\nDescription: %s\nBecause: %s", area, name, d.Description, reason)
+						log.Noticem("diagSkip", log.Msg{"area": area, "name": name, "diag": d.Description, "reason": reason,
+							"tmpl": "Skipping diagnostic: {{.area}}.{{.name}}\nDescription: {{.diag}}\nBecause: {{.reason}}"})
 					}
 					continue
 				}
 			}
-			log.Noticef("Running diagnostic: %s.%s\nDescription: %s", area, name, d.Description)
+			log.Noticem("diagRun", log.Msg{"area": area, "name": name, "diag": d.Description,
+				"tmpl": "Running diagnostic: {{.area}}.{{.name}}\nDescription: {{.diag}}"})
 			d.Run(env)
 		}
 	}

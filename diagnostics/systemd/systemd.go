@@ -18,9 +18,10 @@ type logEntry struct {
 type logMatcher struct { // regex for scanning log messages and interpreting them when found
 	Regexp         *regexp.Regexp
 	Level          log.Level
-	Interpretation string // log at above level if it's simple
-	KeepAfterMatch bool   // usually note only one log entry
-	Interpret      func(  // run this to do its own logic
+	Id             string
+	Interpretation string // log with above level+id if it's simple
+	KeepAfterMatch bool   // usually note only first matched entry, ignore rest
+	Interpret      func(  // run this for custom logic on match
 		env *types.Environment,
 		entry *logEntry,
 		matches []string,
@@ -64,11 +65,13 @@ var unitLogSpecs = []*unitSpec{
 			logMatcher{
 				Regexp:         regexp.MustCompile("Unable to decode an event from the watch stream: local error: unexpected message"),
 				Level:          log.InfoLevel,
+				Id:             "sdLogOMIgnore",
 				Interpretation: "You can safely ignore this message.",
 			},
 			logMatcher{
 				Regexp: regexp.MustCompile("HTTP probe error: Get .*/healthz: dial tcp .*:10250: connection refused"),
 				Level:  log.InfoLevel,
+				Id:     "sdLogOMhzRef",
 				Interpretation: `
 The OpenShift master does a health check on nodes that are defined in
 its records, and this is the result when the node is not available yet.
@@ -86,7 +89,7 @@ logs after the node is actually available.`,
 					if tlsClientErrorSeen == nil { // first time this message was seen
 						tlsClientErrorSeen = map[string]bool{client: true}
 						// TODO: too generic, adjust message depending on subnet of the "from" address
-						log.Warn(prelude + `
+						log.Warnm("sdLogOMreBadCert", log.Msg{"client": client, "text": prelude + `
 This error indicates that a client attempted to connect to the master
 HTTPS API server but broke off the connection because the master's
 certificate is not validated by a cerificate authority (CA) acceptable
@@ -124,10 +127,11 @@ log message:
   (so this message may simply indicate that the master generated a new
   server certificate, e.g. to add a different --public-master, and a
   browser hasn't accepted it yet and is still attempting API calls;
-  try logging out of the console and back in again).`)
+  try logging out of the console and back in again).`})
 					} else if !tlsClientErrorSeen[client] {
 						tlsClientErrorSeen[client] = true
-						log.Warn(prelude + `This message was diagnosed above, but for a different client address.`)
+						log.Warnm("sdLogOMreBadCert", log.Msg{"client": client, "text": prelude +
+							`This message was diagnosed above, but for a different client address.`})
 					} // else, it's a repeat, don't mention it
 					return true // show once for every client failing to connect, not just the first
 				},
@@ -136,6 +140,7 @@ log message:
 				// user &{system:anonymous  [system:unauthenticated]} -> /api/v1beta1/services?namespace="
 				Regexp: regexp.MustCompile("system:anonymous\\W*system:unauthenticated\\W*/api/v1beta1/services\\?namespace="),
 				Level:  log.WarnLevel,
+				Id:     "sdLogOMunauthNode",
 				Interpretation: `
 This indicates the OpenShift API server (master) received an unscoped
 request to get Services. Requests like this probably come from an
@@ -148,7 +153,7 @@ The node will not be able to function without this access.
 
 Unfortunately, this message does not tell us *which* node is the
 problem. But running diagnostics on your node hosts should find a log
-message on any with this problem.
+message for any node with this problem.
 `,
 			},
 		},
@@ -166,6 +171,7 @@ message on any with this problem.
 			logMatcher{
 				Regexp: regexp.MustCompile("Unable to load services: Get (http\\S+/api/v1beta1/services\\?namespace=): (.+)"), // e.g. x509: certificate signed by unknown authority
 				Level:  log.ErrorLevel,
+				Id:     "sdLogONconnMaster",
 				Interpretation: `
 openshift-node could not connect to the OpenShift master API in order
 to determine its responsibilities. This host will not function as a node
@@ -175,6 +181,7 @@ pending or unknown state forever.`,
 			logMatcher{
 				Regexp: regexp.MustCompile(`Unable to load services: request.*403 Forbidden: Forbidden: "/api/v1beta1/services\?namespace=" denied by default`),
 				Level:  log.ErrorLevel,
+				Id:     "sdLogONMasterForbids",
 				Interpretation: `
 openshift-node could not connect to the OpenShift master API to determine
 its responsibilities because it lacks the proper credentials. Nodes
@@ -196,6 +203,7 @@ scheduled for this node will remain in pending or unknown state forever.`,
 			logMatcher{
 				Regexp: regexp.MustCompile("Could not find an allocated subnet for this minion.*Waiting.."),
 				Level:  log.WarnLevel,
+				Id:     "sdLogOSNnoSubnet",
 				Interpretation: `
 This warning occurs when openshift-sdn-node is trying to request the
 SDN subnet it should be configured with according to openshift-sdn-master,
@@ -226,6 +234,7 @@ Check MASTER_URL in /etc/sysconfig/openshift-sdn-node:
 			logMatcher{
 				Regexp: regexp.MustCompile(`Usage: docker \\[OPTIONS\\] COMMAND`),
 				Level:  log.ErrorLevel,
+				Id:     "sdLogDbadOpt",
 				Interpretation: `
 This indicates that docker failed to parse its command line
 successfully, so it just printed a standard usage message and exited.
@@ -238,6 +247,7 @@ The OpenShift node will not work on this host until this is resolved.`,
 			logMatcher{ // generic error seen - do this last
 				Regexp: regexp.MustCompile(`\\slevel="fatal"\\s`),
 				Level:  log.ErrorLevel,
+				Id:     "sdLogDfatal",
 				Interpretation: `
 This is not a known problem, but it is causing Docker to crash,
 so the OpenShift node will not work on this host until it is resolved.`,
@@ -273,7 +283,7 @@ var Diagnostics = map[string]types.Diagnostic{
 		Run: func(env *types.Environment) {
 			for _, unit := range unitLogSpecs {
 				if svc := env.SystemdUnits[unit.Name]; svc.Enabled || svc.Active {
-					log.Infof("Checking journalctl logs for '%s' service", unit.Name)
+					log.Infom("sdCheckLogs", log.Msg{"tmpl": "Checking journalctl logs for '{{.name}}' service", "name": unit.Name})
 					matchLogsSinceLastStart(unit, env)
 				}
 			}
@@ -318,7 +328,7 @@ Connections to a container will fail without it.`)
 			// sdn-node's dependency on node is a special case.
 			// We do not need to enable node because sdn-note starts it for us.
 			if u["openshift-sdn-node"].Active && !u["openshift-node"].Active {
-				log.Error(`
+				log.Error("sdUnitSDNreqSN", `
 systemd unit openshift-sdn-node is running but openshift-node is not.
 Normally openshift-sdn-node starts openshift-node once initialized.
 It is likely that openshift-node has crashed or been stopped.
@@ -335,16 +345,16 @@ To ensure it is not repeatedly failing to run, check the status and logs with:
 			// Anything that is enabled but not running deserves notice
 			for name, unit := range u {
 				if unit.Enabled && !unit.Active {
-					log.Errorf(`
-The %s systemd unit is intended to start at boot but is not currently active.
-An administrator can start the %[1]s unit with:
+					log.Errorm("sdUnitInactive", log.Msg{"tmpl": `
+The {{.unit}} systemd unit is intended to start at boot but is not currently active.
+An administrator can start the {{.unit}} unit with:
 
-  # systemctl start %[1]s
+  # systemctl start {{.unit}}
 
 To ensure it is not failing to run, check the status and logs with:
 
-  # systemctl status %[1]s
-  # journalctl -ru %[1]s`, name)
+  # systemctl status {{.unit}}
+  # journalctl -ru {{.unit}}`, "unit": name})
 				}
 			}
 		},
@@ -357,38 +367,38 @@ To ensure it is not failing to run, check the status and logs with:
 
 func unitRequiresUnit(unit types.SystemdUnit, requires types.SystemdUnit, reason string) {
 	if (unit.Active || unit.Enabled) && !requires.Exists {
-		log.Errorf(`
-systemd unit %s depends on unit %s, which is not loaded.
-%s
-An administrator probably needs to install the %[2]s unit with:
+		log.Errorm("sdUnitReqLoaded", log.Msg{"tmpl": `
+systemd unit {{.unit}} depends on unit {{.required}}, which is not loaded.
+{{.reason}}
+An administrator probably needs to install the {{.required}} unit with:
 
-  # yum install %[2]s
+  # yum install {{.required}}
 
 If it is already installed, you may to reload the definition with:
 
-  # systemctl reload %[2]s
-		`, unit.Name, requires.Name, reason)
+  # systemctl reload {{.required}}
+  `, "unit": unit.Name, "required": requires.Name, "reason": reason})
 	} else if unit.Active && !requires.Active {
-		log.Errorf(`
-systemd unit %s is running but %s is not.
-%s
-An administrator can start the %[2]s unit with:
+		log.Errorm("sdUnitReqActive", log.Msg{"tmpl": `
+systemd unit {{.unit}} is running but {{.required}} is not.
+{{.reason}}
+An administrator can start the {{.required}} unit with:
 
-  # systemctl start %[2]s
+  # systemctl start {{.required}}
 
 To ensure it is not failing to run, check the status and logs with:
 
-  # systemctl status %[2]s
-  # journalctl -ru %[2]s
-		`, unit.Name, requires.Name, reason)
+  # systemctl status {{.required}}
+  # journalctl -ru {{.required}}
+  `, "unit": unit.Name, "required": requires.Name, "reason": reason})
 	} else if unit.Enabled && !requires.Enabled {
-		log.Warnf(`
-systemd unit %s is enabled to run automatically at boot, but %s is not.
-%s
-An administrator can enable the %[2]s unit with:
+		log.Warnm("sdUnitReqEnabled", log.Msg{"tmpl": `
+systemd unit {{.unit}} is enabled to run automatically at boot, but {{.required}} is not.
+{{.reason}}
+An administrator can enable the {{.required}} unit with:
 
-  # systemctl enable %[2]s
-		`, unit.Name, requires.Name, reason)
+  # systemctl enable {{.required}}
+  `, "unit": unit.Name, "required": requires.Name, "reason": reason})
 	}
 }
 
@@ -406,7 +416,10 @@ func matchLogsSinceLastStart(unit *unitSpec, env *types.Environment) {
 		return nil, nil, err
 	}(cmd)
 	if err != nil {
-		log.Errorf("Diagnostics failed to query journalctl for the '%s' unit logs.\nThis should be very unusual, so please report the reason:\n(%T) %v", unit.Name, err, err)
+		log.Errorm("sdLogReadErr", log.Msg{"tmpl": `
+Diagnostics failed to query journalctl for the '{{.unit}}' unit logs.
+This should be very unusual, so please report this error:
+{{.error}}`, "unit": unit.Name, "error": errStr(err)})
 		return
 	}
 	defer func() { // close out pipe once done reading
@@ -421,7 +434,8 @@ func matchLogsSinceLastStart(unit *unitSpec, env *types.Environment) {
 		}
 		bytes, entry := lineReader.Bytes(), entryTemplate
 		if err := json.Unmarshal(bytes, &entry); err != nil {
-			log.Debugf("Couldn't read the JSON for this log message:\n%v\nGot error (%T) %v", bytes, err, err)
+			log.Debugm("sdLogBadJSON", log.Msg{"message": string(bytes), "error": errStr(err),
+				"tmpl": "Couldn't read the JSON for this log message:\n{{.message}}\nGot error {{.error}}"})
 		} else {
 			if unit.StartMatch.MatchString(entry.Message) {
 				break // saw the log message where the unit started; done looking.
@@ -429,12 +443,12 @@ func matchLogsSinceLastStart(unit *unitSpec, env *types.Environment) {
 			for index, match := range matchCopy { // match log message against provided matchers
 				if strings := match.Regexp.FindStringSubmatch(entry.Message); strings != nil {
 					// if matches: print interpretation, remove from matchCopy, and go on to next log entry
-					prelude := fmt.Sprintf("Found '%s' journald log message:\n  %s\n", unit.Name, entry.Message)
 					keep := match.KeepAfterMatch
 					if match.Interpret != nil {
 						keep = match.Interpret(env, &entry, strings)
 					} else {
-						log.Log(match.Level, prelude+match.Interpretation)
+						prelude := fmt.Sprintf("Found '%s' journald log message:\n  %s\n", unit.Name, entry.Message)
+						log.Log(match.Level, match.Id, log.Msg{"text": prelude + match.Interpretation, "unit": unit.Name, "logMsg": entry.Message})
 					}
 					if !keep { // remove matcher once seen
 						matchCopy = append(matchCopy[:index], matchCopy[index+1:]...)
@@ -444,4 +458,8 @@ func matchLogsSinceLastStart(unit *unitSpec, env *types.Environment) {
 			}
 		}
 	}
+}
+
+func errStr(err error) string {
+	return fmt.Sprintf("(%T) %[1]v", err)
 }
