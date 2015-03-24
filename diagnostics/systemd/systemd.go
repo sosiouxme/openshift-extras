@@ -169,6 +169,40 @@ message for any node with this problem.
 		LogMatchers: []logMatcher{
 			badImageTemplate,
 			logMatcher{
+				Regexp: regexp.MustCompile(`error updating node status, will retry:.*system:(\S+) cannot get on minions with name "(\S+)" in default|Failed to list .*Forbidden: "\S+" system:node-\S+ cannot list on (pods|services) in`),
+				Level:  log.ErrorLevel,
+				Id:     "sdLogONnodePerm",
+				Interpretation: `
+openshift-node lacks the permission to update the node's status or request
+its responsibilities from the OpenShift master API. This host will not
+function as a node until this is resolved. Pods scheduled for this node
+will remain in pending or unknown state forever.
+
+This probably indicates a problem with policy as node credentials in beta3
+allow access to anything (later, they will be constrained only to pods
+that belong to them). This message indicates that the node credentials
+are authenticated, but not authorized for the necessary access.
+
+One way to encounter this is to start the master with data from an older
+installation (e.g. beta2) in etcd. The default startup will not update
+existing policy to allow node access as they would have if starting with
+an empty etcd. In this case, the following command (as admin):
+
+    osc get rolebindings -n master
+
+... should show group system:nodes has the master/system:component role.
+If that is missing, you may wish to rewrite the bootstrap policy with:
+
+    POLICY=/var/lib/openshift/openshift.local.policy/policy.json
+    CONF=/etc/openshift/master.yaml
+    openshift admin overwrite-policy --filename=$POLICY --master-config=$CONF
+
+If that is not the problem, then it may be that access controls on nodes
+have been put in place and are blocking this request; check the error
+message to see whether the node is attempting to use the wrong node name.
+`,
+			},
+			logMatcher{
 				Regexp: regexp.MustCompile("Unable to load services: Get (http\\S+/api/v1beta1/services\\?namespace=): (.+)"), // e.g. x509: certificate signed by unknown authority
 				Level:  log.ErrorLevel,
 				Id:     "sdLogONconnMaster",
