@@ -2,113 +2,107 @@ package clientcmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/meta"
 	kclient "github.com/GoogleCloudPlatform/kubernetes/pkg/client"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
+	kclientcmd "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl"
 	kubecmd "github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl/cmd"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl/resource"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 
 	"github.com/openshift/origin/pkg/api/latest"
 	"github.com/openshift/origin/pkg/client"
 	"github.com/openshift/origin/pkg/cmd/cli/describe"
-)
+	"github.com/openshift/origin/pkg/cmd/util"
 
-const defaultClusterURL = "https://localhost:8443"
+	"github.com/spf13/pflag"
+)
 
 // NewFactory creates a default Factory for commands that should share identical server
 // connection behavior. Most commands should use this method to get a factory.
 func New(flags *pflag.FlagSet) *Factory {
-	// Override global default to https and port 8443
-	clientcmd.DefaultCluster.Server = defaultClusterURL
+	// Override global default to "" so we force the client to ask for user input
+	// TODO refactor this usptream:
+	// DefaultCluster should not be a global
+	// A call to ClientConfig() should always return the best clientCfg possible
+	// even if an error was returned, and let the caller decide what to do
+	kclientcmd.DefaultCluster.Server = ""
 
 	// TODO: there should be two client configs, one for OpenShift, and one for Kubernetes
-	clientConfig := DefaultClientConfig(flags)
+	clientConfig := util.DefaultClientConfig(flags)
 	f := NewFactory(clientConfig)
 	f.BindFlags(flags)
+
 	return f
-}
-
-// Copy of kubectl/cmd/DefaultClientConfig, using NewNonInteractiveDeferredLoadingClientConfig
-func DefaultClientConfig(flags *pflag.FlagSet) clientcmd.ClientConfig {
-	loadingRules := clientcmd.NewClientConfigLoadingRules()
-	loadingRules.EnvVarPath = os.Getenv(clientcmd.RecommendedConfigPathEnvVar)
-	flags.StringVar(&loadingRules.CommandLinePath, "kubeconfig", "", "Path to the kubeconfig file to use for CLI requests.")
-
-	overrides := &clientcmd.ConfigOverrides{}
-	overrideFlags := clientcmd.RecommendedConfigOverrideFlags("")
-	overrideFlags.ContextOverrideFlags.NamespaceShort = "n"
-	clientcmd.BindOverrideFlags(overrides, flags, overrideFlags)
-	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(loadingRules, overrides)
-
-	return clientConfig
 }
 
 // Factory provides common options for OpenShift commands
 type Factory struct {
 	*kubecmd.Factory
-	OpenShiftClientConfig clientcmd.ClientConfig
+	OpenShiftClientConfig kclientcmd.ClientConfig
+	clients               *clientCache
 }
 
 // NewFactory creates an object that holds common methods across all OpenShift commands
-func NewFactory(clientConfig clientcmd.ClientConfig) *Factory {
+func NewFactory(clientConfig kclientcmd.ClientConfig) *Factory {
 	mapper := ShortcutExpander{kubectl.ShortcutExpander{latest.RESTMapper}}
 
-	w := &Factory{kubecmd.NewFactory(clientConfig), clientConfig}
+	clients := &clientCache{
+		clients: make(map[string]*client.Client),
+		loader:  clientConfig,
+	}
 
-	w.Object = func(cmd *cobra.Command) (meta.RESTMapper, runtime.ObjectTyper) {
+	w := &Factory{
+		Factory:               kubecmd.NewFactory(clientConfig),
+		OpenShiftClientConfig: clientConfig,
+		clients:               clients,
+	}
+
+	w.Object = func() (meta.RESTMapper, runtime.ObjectTyper) {
+		if cfg, err := clientConfig.ClientConfig(); err == nil {
+			return kubectl.OutputVersionMapper{mapper, cfg.Version}, api.Scheme
+		}
 		return mapper, api.Scheme
 	}
 
-	// Save original RESTClient function
-	kRESTClientFunc := w.Factory.RESTClient
-	w.RESTClient = func(cmd *cobra.Command, mapping *meta.RESTMapping) (resource.RESTClient, error) {
+	kRESTClient := w.Factory.RESTClient
+	w.RESTClient = func(mapping *meta.RESTMapping) (resource.RESTClient, error) {
 		if latest.OriginKind(mapping.Kind, mapping.APIVersion) {
-			cfg, err := w.OpenShiftClientConfig.ClientConfig()
+			client, err := clients.ClientForVersion(mapping.APIVersion)
 			if err != nil {
-				return nil, fmt.Errorf("unable to find client config %s: %v", mapping.Kind, err)
+				return nil, err
 			}
-			cli, err := client.New(cfg)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create client %s: %v", mapping.Kind, err)
-			}
-			return cli.RESTClient, nil
+			return client.RESTClient, nil
 		}
-		return kRESTClientFunc(cmd, mapping)
+		return kRESTClient(mapping)
 	}
 
 	// Save original Describer function
 	kDescriberFunc := w.Factory.Describer
-	w.Describer = func(cmd *cobra.Command, mapping *meta.RESTMapping) (kubectl.Describer, error) {
+	w.Describer = func(mapping *meta.RESTMapping) (kubectl.Describer, error) {
 		if latest.OriginKind(mapping.Kind, mapping.APIVersion) {
-			cfg, err := w.OpenShiftClientConfig.ClientConfig()
+			oClient, kClient, err := w.Clients()
 			if err != nil {
-				return nil, fmt.Errorf("unable to describe %s: %v", mapping.Kind, err)
+				return nil, fmt.Errorf("unable to create client %s: %v", mapping.Kind, err)
 			}
-			cli, err := client.New(cfg)
+
+			cfg, err := clients.ClientConfigForVersion(mapping.APIVersion)
 			if err != nil {
-				return nil, fmt.Errorf("unable to describe %s: %v", mapping.Kind, err)
+				return nil, fmt.Errorf("unable to load a client %s: %v", mapping.Kind, err)
 			}
-			kubeClient, err := kclient.New(cfg)
-			if err != nil {
-				return nil, fmt.Errorf("unable to describe %s: %v", mapping.Kind, err)
-			}
-			describer, ok := describe.DescriberFor(mapping.Kind, cli, kubeClient, "")
+
+			describer, ok := describe.DescriberFor(mapping.Kind, oClient, kClient, cfg.Host)
 			if !ok {
 				return nil, fmt.Errorf("no description has been implemented for %q", mapping.Kind)
 			}
 			return describer, nil
 		}
-		return kDescriberFunc(cmd, mapping)
+		return kDescriberFunc(mapping)
 	}
 
-	w.Printer = func(cmd *cobra.Command, mapping *meta.RESTMapping, noHeaders bool) (kubectl.ResourcePrinter, error) {
+	w.Printer = func(mapping *meta.RESTMapping, noHeaders bool) (kubectl.ResourcePrinter, error) {
 		return describe.NewHumanReadablePrinter(noHeaders), nil
 	}
 
@@ -116,20 +110,16 @@ func NewFactory(clientConfig clientcmd.ClientConfig) *Factory {
 }
 
 // Clients returns an OpenShift and Kubernetes client.
-func (f *Factory) Clients(cmd *cobra.Command) (*client.Client, *kclient.Client, error) {
-	os, err := f.OpenShiftClientConfig.ClientConfig()
+func (f *Factory) Clients() (*client.Client, *kclient.Client, error) {
+	kClient, err := f.Client()
 	if err != nil {
 		return nil, nil, err
 	}
-	oc, err := client.New(os)
+	osClient, err := f.clients.ClientForVersion("")
 	if err != nil {
 		return nil, nil, err
 	}
-	kc, err := f.Client(cmd)
-	if err != nil {
-		return nil, nil, err
-	}
-	return oc, kc, nil
+	return osClient, kClient, nil
 }
 
 // ShortcutExpander is a RESTMapper that can be used for OpenShift resources.
@@ -156,4 +146,52 @@ func expandResourceShortcut(resource string) string {
 		return expanded
 	}
 	return resource
+}
+
+// clientCache caches previously loaded clients for reuse, and ensures MatchServerVersion
+// is invoked only once
+type clientCache struct {
+	loader        kclientcmd.ClientConfig
+	clients       map[string]*client.Client
+	defaultConfig *kclient.Config
+}
+
+// ClientConfigForVersion returns the correct config for a server
+func (c *clientCache) ClientConfigForVersion(version string) (*kclient.Config, error) {
+	if c.defaultConfig == nil {
+		config, err := c.loader.ClientConfig()
+		if err != nil {
+			return nil, err
+		}
+		c.defaultConfig = config
+	}
+	// TODO: have a better config copy method
+	config := *c.defaultConfig
+	if len(version) != 0 {
+		config.Version = version
+	}
+	client.SetOpenShiftDefaults(&config)
+
+	return &config, nil
+}
+
+// ClientForVersion initializes or reuses a client for the specified version, or returns an
+// error if that is not possible
+func (c *clientCache) ClientForVersion(version string) (*client.Client, error) {
+	config, err := c.ClientConfigForVersion(version)
+	if err != nil {
+		return nil, err
+	}
+
+	if client, ok := c.clients[config.Version]; ok {
+		return client, nil
+	}
+
+	client, err := client.New(config)
+	if err != nil {
+		return nil, err
+	}
+
+	c.clients[config.Version] = client
+	return client, nil
 }

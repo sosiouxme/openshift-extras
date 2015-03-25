@@ -76,7 +76,9 @@ func TestBuildConfigValidationSuccess(t *testing.T) {
 				Type:           buildapi.DockerBuildStrategyType,
 				DockerStrategy: &buildapi.DockerBuildStrategy{},
 			},
-			Output: buildapi.BuildOutput{},
+			Output: buildapi.BuildOutput{
+				DockerImageReference: "repository/data",
+			},
 		},
 	}
 	if result := ValidateBuildConfig(buildConfig); len(result) > 0 {
@@ -275,7 +277,7 @@ func TestValidateBuildParameters(t *testing.T) {
 			},
 		},
 		{
-			string(errs.ValidationErrorTypeRequired) + "strategy.stiStrategy.image",
+			string(errs.ValidationErrorTypeInvalid) + "strategy.type",
 			&buildapi.BuildParameters{
 				Source: buildapi.BuildSource{
 					Type: buildapi.BuildSourceGit,
@@ -283,14 +285,69 @@ func TestValidateBuildParameters(t *testing.T) {
 						URI: "http://github.com/my/repository",
 					},
 				},
+				Strategy: buildapi.BuildStrategy{Type: "classic-joke"},
 				Output: buildapi.BuildOutput{
 					DockerImageReference: "repository/data",
+				},
+			},
+		},
+		{
+			string(errs.ValidationErrorTypeRequired) + "strategy.type",
+			&buildapi.BuildParameters{
+				Source: buildapi.BuildSource{
+					Type: buildapi.BuildSourceGit,
+					Git: &buildapi.GitBuildSource{
+						URI: "http://github.com/my/repository",
+					},
+				},
+				Strategy: buildapi.BuildStrategy{},
+				Output: buildapi.BuildOutput{
+					DockerImageReference: "repository/data",
+				},
+			},
+		},
+		// invalid because both image and from are specified in the
+		// sti strategy definition
+		{
+			string(errs.ValidationErrorTypeInvalid) + "strategy.stiStrategy.image",
+			&buildapi.BuildParameters{
+				Source: buildapi.BuildSource{
+					Type: buildapi.BuildSourceGit,
+					Git: &buildapi.GitBuildSource{
+						URI: "http://github.com/my/repository",
+					},
 				},
 				Strategy: buildapi.BuildStrategy{
 					Type: buildapi.STIBuildStrategyType,
 					STIStrategy: &buildapi.STIBuildStrategy{
-						Image: "",
+						Image: "image",
+						From: &kapi.ObjectReference{
+							Name: "reponame",
+						},
 					},
+				},
+				Output: buildapi.BuildOutput{
+					DockerImageReference: "repository/data",
+				},
+			},
+		},
+		// invalid because neither image nor from are specified in the
+		// sti strategy definition
+		{
+			string(errs.ValidationErrorTypeRequired) + "strategy.stiStrategy.from",
+			&buildapi.BuildParameters{
+				Source: buildapi.BuildSource{
+					Type: buildapi.BuildSourceGit,
+					Git: &buildapi.GitBuildSource{
+						URI: "http://github.com/my/repository",
+					},
+				},
+				Strategy: buildapi.BuildStrategy{
+					Type:        buildapi.STIBuildStrategyType,
+					STIStrategy: &buildapi.STIBuildStrategy{},
+				},
+				Output: buildapi.BuildOutput{
+					DockerImageReference: "repository/data",
 				},
 			},
 		},
@@ -309,6 +366,61 @@ func TestValidateBuildParameters(t *testing.T) {
 	}
 }
 
+func TestValidateBuildParametersSuccess(t *testing.T) {
+	testCases := []struct {
+		*buildapi.BuildParameters
+	}{
+		{
+			&buildapi.BuildParameters{
+				Source: buildapi.BuildSource{
+					Type: buildapi.BuildSourceGit,
+					Git: &buildapi.GitBuildSource{
+						URI: "http://github.com/my/repository",
+					},
+				},
+				Strategy: buildapi.BuildStrategy{
+					Type: buildapi.STIBuildStrategyType,
+					STIStrategy: &buildapi.STIBuildStrategy{
+						Image: "repository/builder-image",
+					},
+				},
+				Output: buildapi.BuildOutput{
+					DockerImageReference: "repository/data",
+				},
+			},
+		},
+		{
+			&buildapi.BuildParameters{
+				Source: buildapi.BuildSource{
+					Type: buildapi.BuildSourceGit,
+					Git: &buildapi.GitBuildSource{
+						URI: "http://github.com/my/repository",
+					},
+				},
+				Strategy: buildapi.BuildStrategy{
+					Type: buildapi.STIBuildStrategyType,
+					STIStrategy: &buildapi.STIBuildStrategy{
+						From: &kapi.ObjectReference{
+							Name: "reponame",
+						},
+					},
+				},
+				Output: buildapi.BuildOutput{
+					DockerImageReference: "repository/data",
+				},
+			},
+		},
+	}
+
+	for _, config := range testCases {
+		errors := validateBuildParameters(config.BuildParameters)
+		if len(errors) != 0 {
+			t.Errorf("Unexpected validation error: %v", errors)
+		}
+	}
+
+}
+
 func TestValidateTrigger(t *testing.T) {
 	tests := map[string]struct {
 		trigger  buildapi.BuildTriggerPolicy
@@ -316,18 +428,18 @@ func TestValidateTrigger(t *testing.T) {
 	}{
 		"trigger without type": {
 			trigger:  buildapi.BuildTriggerPolicy{},
-			expected: []*errs.ValidationError{errs.NewFieldRequired("type", "")},
+			expected: []*errs.ValidationError{errs.NewFieldRequired("type")},
 		},
 		"github type with no github webhook": {
 			trigger:  buildapi.BuildTriggerPolicy{Type: buildapi.GithubWebHookBuildTriggerType},
-			expected: []*errs.ValidationError{errs.NewFieldRequired("github", "")},
+			expected: []*errs.ValidationError{errs.NewFieldRequired("github")},
 		},
 		"github trigger with no secret": {
 			trigger: buildapi.BuildTriggerPolicy{
 				Type:          buildapi.GithubWebHookBuildTriggerType,
 				GithubWebHook: &buildapi.WebHookTrigger{},
 			},
-			expected: []*errs.ValidationError{errs.NewFieldRequired("github.secret", "")},
+			expected: []*errs.ValidationError{errs.NewFieldRequired("github.secret")},
 		},
 		"github trigger with generic webhook": {
 			trigger: buildapi.BuildTriggerPolicy{
@@ -340,14 +452,14 @@ func TestValidateTrigger(t *testing.T) {
 		},
 		"generic trigger with no generic webhook": {
 			trigger:  buildapi.BuildTriggerPolicy{Type: buildapi.GenericWebHookBuildTriggerType},
-			expected: []*errs.ValidationError{errs.NewFieldRequired("generic", "")},
+			expected: []*errs.ValidationError{errs.NewFieldRequired("generic")},
 		},
 		"generic trigger with no secret": {
 			trigger: buildapi.BuildTriggerPolicy{
 				Type:           buildapi.GenericWebHookBuildTriggerType,
 				GenericWebHook: &buildapi.WebHookTrigger{},
 			},
-			expected: []*errs.ValidationError{errs.NewFieldRequired("generic.secret", "")},
+			expected: []*errs.ValidationError{errs.NewFieldRequired("generic.secret")},
 		},
 		"generic trigger with github webhook": {
 			trigger: buildapi.BuildTriggerPolicy{
@@ -379,7 +491,7 @@ func TestValidateTrigger(t *testing.T) {
 		errors := validateTrigger(&test.trigger)
 		if len(test.expected) == 0 {
 			if len(errors) != 0 {
-				t.Errorf("%s: Got unexpected validation errors: %#v", errors)
+				t.Errorf("%s: Got unexpected validation errors: %#v", desc, errors)
 			}
 			continue
 		}
@@ -390,6 +502,69 @@ func TestValidateTrigger(t *testing.T) {
 		}
 		if validationError.Field != test.expected[0].Field {
 			t.Errorf("%s: Unexpected error field: %s", desc, validationError.Field)
+		}
+	}
+}
+
+func TestValidateImageChange(t *testing.T) {
+	tests := []struct {
+		name           string
+		ict            *buildapi.ImageChangeTrigger
+		expectedErrNum int
+	}{
+		{
+			name: "Pass",
+			ict: &buildapi.ImageChangeTrigger{
+				Image: "openshift",
+				From: kapi.ObjectReference{
+					Name: "default/repo",
+				},
+			},
+			expectedErrNum: 0,
+		},
+		{
+			name: "Missing image ref",
+			ict: &buildapi.ImageChangeTrigger{
+				Image: "",
+				From: kapi.ObjectReference{
+					Name: "default/repo",
+				},
+			},
+			expectedErrNum: 1,
+		},
+		{
+			name: "Missing From ref",
+			ict: &buildapi.ImageChangeTrigger{
+				Image: "openshift",
+				From: kapi.ObjectReference{
+					Name: "",
+				},
+			},
+			expectedErrNum: 1,
+		},
+		{
+			name: "Both missing refs",
+			ict: &buildapi.ImageChangeTrigger{
+				Image: "",
+				From: kapi.ObjectReference{
+					Name: "",
+				},
+			},
+			expectedErrNum: 2,
+		},
+		{
+			name: "Undefined from field",
+			ict: &buildapi.ImageChangeTrigger{
+				Image: "openshift",
+			},
+			expectedErrNum: 1,
+		},
+	}
+
+	for _, test := range tests {
+		got := len(validateImageChange(test.ict))
+		if test.expectedErrNum != got {
+			t.Errorf("%s: Expected %d error(s), got %d", test.name, test.expectedErrNum, got)
 		}
 	}
 }

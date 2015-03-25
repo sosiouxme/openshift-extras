@@ -43,7 +43,7 @@ func TestMakeFuncs(t *testing.T) {
 			ValidationErrorTypeNotFound,
 		},
 		{
-			func() *ValidationError { return NewFieldRequired("f", "v") },
+			func() *ValidationError { return NewFieldRequired("f") },
 			ValidationErrorTypeRequired,
 		},
 	}
@@ -90,6 +90,32 @@ func TestValidationErrorUsefulMessage(t *testing.T) {
 		if !strings.Contains(s, part) {
 			t.Errorf("error message did not contain expected part '%v'", part)
 		}
+	}
+}
+
+func TestErrListFilter(t *testing.T) {
+	list := ValidationErrorList{
+		NewFieldInvalid("test.field", "", ""),
+		NewFieldInvalid("field.test", "", ""),
+		NewFieldDuplicate("test", "value"),
+	}
+	if len(list.Filter(NewValidationErrorTypeMatcher(ValidationErrorTypeDuplicate))) != 2 {
+		t.Errorf("should not filter")
+	}
+	if len(list.Filter(NewValidationErrorTypeMatcher(ValidationErrorTypeInvalid))) != 1 {
+		t.Errorf("should filter")
+	}
+	if len(list.Filter(NewValidationErrorFieldPrefixMatcher("test"))) != 1 {
+		t.Errorf("should filter")
+	}
+	if len(list.Filter(NewValidationErrorFieldPrefixMatcher("test."))) != 2 {
+		t.Errorf("should filter")
+	}
+	if len(list.Filter(NewValidationErrorFieldPrefixMatcher(""))) != 0 {
+		t.Errorf("should filter")
+	}
+	if len(list.Filter(NewValidationErrorFieldPrefixMatcher("field."), NewValidationErrorTypeMatcher(ValidationErrorTypeDuplicate))) != 1 {
+		t.Errorf("should filter")
 	}
 }
 

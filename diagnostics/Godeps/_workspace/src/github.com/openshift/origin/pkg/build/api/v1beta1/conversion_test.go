@@ -26,6 +26,12 @@ func TestSTIBuildStrategyConversion(t *testing.T) {
 	if actual.Image != oldVersion.BuilderImage {
 		t.Errorf("expected %v, actual %v", oldVersion.BuilderImage, actual.Image)
 	}
+	if actual.From != nil {
+		t.Errorf("expected %v, actual %v", nil, actual.From)
+	}
+	if actual.Tag != oldVersion.Tag {
+		t.Errorf("expected %v, actual %v", oldVersion.Tag, actual.Tag)
+	}
 	if actual.Incremental == oldVersion.Clean {
 		t.Errorf("expected %v, actual %v", oldVersion.Clean, actual.Incremental)
 	}
@@ -78,7 +84,7 @@ func TestImageChangeTriggerFromRename(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if actual.From.Name != "bar" {
-		t.Error("expected %#v, actual %#v", old, actual)
+		t.Errorf("expected %#v, actual %#v", old, actual)
 	}
 
 	old = current.ImageChangeTrigger{
@@ -91,7 +97,7 @@ func TestImageChangeTriggerFromRename(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if actual.From.Name != "foo" {
-		t.Error("expected %#v, actual %#v", old, actual)
+		t.Errorf("expected %#v, actual %#v", old, actual)
 	}
 
 	old = current.ImageChangeTrigger{

@@ -1,6 +1,9 @@
 package client
 
 import (
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
+
 	authorizationapi "github.com/openshift/origin/pkg/authorization/api"
 )
 
@@ -11,6 +14,8 @@ type RoleBindingsNamespacer interface {
 
 // RoleBindingInterface exposes methods on RoleBinding resources.
 type RoleBindingInterface interface {
+	List(label labels.Selector, field fields.Selector) (*authorizationapi.RoleBindingList, error)
+	Get(name string) (*authorizationapi.RoleBinding, error)
 	Create(roleBinding *authorizationapi.RoleBinding) (*authorizationapi.RoleBinding, error)
 	Update(roleBinding *authorizationapi.RoleBinding) (*authorizationapi.RoleBinding, error)
 	Delete(name string) error
@@ -28,6 +33,20 @@ func newRoleBindings(c *Client, namespace string) *roleBindings {
 		r:  c,
 		ns: namespace,
 	}
+}
+
+// List returns a list of roleBindings that match the label and field selectors.
+func (c *roleBindings) List(label labels.Selector, field fields.Selector) (result *authorizationapi.RoleBindingList, err error) {
+	result = &authorizationapi.RoleBindingList{}
+	err = c.r.Get().Namespace(c.ns).Resource("roleBindings").LabelsSelectorParam("labels", label).FieldsSelectorParam("fields", field).Do().Into(result)
+	return
+}
+
+// Get returns information about a particular roleBinding and error if one occurs.
+func (c *roleBindings) Get(name string) (result *authorizationapi.RoleBinding, err error) {
+	result = &authorizationapi.RoleBinding{}
+	err = c.r.Get().Namespace(c.ns).Resource("roleBindings").Name(name).Do().Into(result)
+	return
 }
 
 // Create creates new roleBinding. Returns the server's representation of the roleBinding and error if one occurs.

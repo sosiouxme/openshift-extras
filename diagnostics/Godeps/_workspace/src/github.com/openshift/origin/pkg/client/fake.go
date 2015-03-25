@@ -12,6 +12,8 @@ type Fake struct {
 	Actions []FakeAction
 }
 
+var _ Interface = &Fake{}
+
 func (c *Fake) Builds(namespace string) BuildInterface {
 	return &FakeBuilds{Fake: c, Namespace: namespace}
 }
@@ -20,8 +22,12 @@ func (c *Fake) BuildConfigs(namespace string) BuildConfigInterface {
 	return &FakeBuildConfigs{Fake: c, Namespace: namespace}
 }
 
-func (c *Fake) Images(namespace string) ImageInterface {
-	return &FakeImages{Fake: c, Namespace: namespace}
+func (c *Fake) BuildLogs(namespace string) BuildLogInterface {
+	return &FakeBuildLogs{Fake: c, Namespace: namespace}
+}
+
+func (c *Fake) Images() ImageInterface {
+	return &FakeImages{Fake: c}
 }
 
 func (c *Fake) ImageRepositories(namespace string) ImageRepositoryInterface {
@@ -34,6 +40,10 @@ func (c *Fake) ImageRepositoryMappings(namespace string) ImageRepositoryMappingI
 
 func (c *Fake) ImageRepositoryTags(namespace string) ImageRepositoryTagInterface {
 	return &FakeImageRepositoryTags{Fake: c, Namespace: namespace}
+}
+
+func (c *Fake) ImageStreamImages(namespace string) ImageStreamImageInterface {
+	return &FakeImageStreamImages{Fake: c, Namespace: namespace}
 }
 
 func (c *Fake) Deployments(namespace string) DeploymentInterface {
@@ -82,6 +92,10 @@ func (c *Fake) PolicyBindings(namespace string) PolicyBindingInterface {
 
 func (c *Fake) ResourceAccessReviews(namespace string) ResourceAccessReviewInterface {
 	return &FakeResourceAccessReviews{Fake: c}
+}
+
+func (c *Fake) RootResourceAccessReviews() ResourceAccessReviewInterface {
+	return &FakeRootResourceAccessReviews{Fake: c}
 }
 
 func (c *Fake) SubjectAccessReviews(namespace string) SubjectAccessReviewInterface {

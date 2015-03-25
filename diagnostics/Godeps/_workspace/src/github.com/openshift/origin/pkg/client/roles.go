@@ -1,6 +1,9 @@
 package client
 
 import (
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
+
 	authorizationapi "github.com/openshift/origin/pkg/authorization/api"
 )
 
@@ -11,6 +14,8 @@ type RolesNamespacer interface {
 
 // RoleInterface exposes methods on Role resources.
 type RoleInterface interface {
+	List(label labels.Selector, field fields.Selector) (*authorizationapi.RoleList, error)
+	Get(name string) (*authorizationapi.Role, error)
 	Create(role *authorizationapi.Role) (*authorizationapi.Role, error)
 	Update(role *authorizationapi.Role) (*authorizationapi.Role, error)
 	Delete(name string) error
@@ -28,6 +33,20 @@ func newRoles(c *Client, namespace string) *roles {
 		r:  c,
 		ns: namespace,
 	}
+}
+
+// List returns a list of roles that match the label and field selectors.
+func (c *roles) List(label labels.Selector, field fields.Selector) (result *authorizationapi.RoleList, err error) {
+	result = &authorizationapi.RoleList{}
+	err = c.r.Get().Namespace(c.ns).Resource("roles").LabelsSelectorParam("labels", label).FieldsSelectorParam("fields", field).Do().Into(result)
+	return
+}
+
+// Get returns information about a particular role and error if one occurs.
+func (c *roles) Get(name string) (result *authorizationapi.Role, err error) {
+	result = &authorizationapi.Role{}
+	err = c.r.Get().Namespace(c.ns).Resource("roles").Name(name).Do().Into(result)
+	return
 }
 
 // Create creates new role. Returns the server's representation of the role and error if one occurs.

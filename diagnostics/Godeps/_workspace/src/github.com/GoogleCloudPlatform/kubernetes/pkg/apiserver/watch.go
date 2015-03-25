@@ -17,8 +17,8 @@ limitations under the License.
 package apiserver
 
 import (
+	"fmt"
 	"net/http"
-	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -27,7 +27,6 @@ import (
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/httplog"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/watch"
 	watchjson "github.com/GoogleCloudPlatform/kubernetes/pkg/watch/json"
@@ -39,7 +38,6 @@ import (
 type WatchHandler struct {
 	storage map[string]RESTStorage
 	codec   runtime.Codec
-	prefix  string
 	linker  runtime.SelfLinker
 	info    *APIRequestInfoResolver
 }
@@ -51,29 +49,10 @@ func (h *WatchHandler) setSelfLinkAddName(obj runtime.Object, req *http.Request)
 		return err
 	}
 	newURL := *req.URL
-	newURL.Path = path.Join(h.prefix, req.URL.Path, name)
+	newURL.Path = path.Join(req.URL.Path, name)
 	newURL.RawQuery = ""
 	newURL.Fragment = ""
 	return h.linker.SetSelfLink(obj, newURL.String())
-}
-
-func getWatchParams(query url.Values) (label, field labels.Selector, resourceVersion string, err error) {
-	s, perr := labels.ParseSelector(query.Get("labels"))
-	if perr != nil {
-		err = perr
-		return
-	}
-	label = s
-
-	s, perr = labels.ParseSelector(query.Get("fields"))
-	if perr != nil {
-		err = perr
-		return
-	}
-	field = s
-
-	resourceVersion = query.Get("resourceVersion")
-	return
 }
 
 var connectionUpgradeRegex = regexp.MustCompile("(^|.*,\\s*)upgrade($|\\s*,)")
@@ -88,18 +67,18 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var apiResource string
 	var httpCode int
 	reqStart := time.Now()
-	defer func() { monitor("watch", verb, apiResource, httpCode, reqStart) }()
+	defer monitor("watch", &verb, &apiResource, &httpCode, reqStart)
 
 	if req.Method != "GET" {
-		notFound(w, req)
-		httpCode = http.StatusNotFound
+		httpCode = errorJSON(errors.NewBadRequest(
+			fmt.Sprintf("unsupported method for watch: %s", req.Method)), h.codec, w)
 		return
 	}
 
 	requestInfo, err := h.info.GetAPIRequestInfo(req)
 	if err != nil {
-		notFound(w, req)
-		httpCode = http.StatusNotFound
+		httpCode = errorJSON(errors.NewBadRequest(
+			fmt.Sprintf("failed to find api request info: %s", err.Error())), h.codec, w)
 		return
 	}
 	verb = requestInfo.Verb
@@ -107,8 +86,7 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	storage := h.storage[requestInfo.Resource]
 	if storage == nil {
-		notFound(w, req)
-		httpCode = http.StatusNotFound
+		httpCode = errorJSON(errors.NewNotFound(requestInfo.Resource, "Resource"), h.codec, w)
 		return
 	}
 	apiResource = requestInfo.Resource
@@ -118,11 +96,13 @@ func (h *WatchHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	label, field, resourceVersion, err := getWatchParams(req.URL.Query())
+	label, field, err := parseSelectorQueryParams(req.URL.Query(), requestInfo.APIVersion, apiResource)
 	if err != nil {
 		httpCode = errorJSON(err, h.codec, w)
 		return
 	}
+
+	resourceVersion := req.URL.Query().Get("resourceVersion")
 	watching, err := watcher.Watch(ctx, label, field, resourceVersion)
 	if err != nil {
 		httpCode = errorJSON(err, h.codec, w)

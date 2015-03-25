@@ -56,7 +56,7 @@ var (
 		OAuthGroupName:              {"oauthauthorizetokens", "oauthaccesstokens", "oauthclients", "oauthclientauthorizations"},
 		PolicyOwnerGroupName:        {"policies", "policybindings"},
 		PermissionGrantingGroupName: {"roles", "rolebindings", "resourceaccessreviews", "subjectaccessreviews"},
-		OpenshiftExposedGroupName:   {BuildGroupName, ImageGroupName, DeploymentGroupName, "templateconfigs", "routes", "projects"},
+		OpenshiftExposedGroupName:   {BuildGroupName, ImageGroupName, DeploymentGroupName, "templates", "templateconfigs", "routes", "projects"},
 		OpenshiftAllGroupName:       {OpenshiftExposedGroupName, UserGroupName, OAuthGroupName, PolicyOwnerGroupName, PermissionGrantingGroupName},
 
 		QuotaGroupName:         {"limitranges", "resourcequotas", "resourcequotausages"},
@@ -81,6 +81,11 @@ type PolicyRule struct {
 	// NonResourceURLs is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
 	// If an action is not a resource API request, then the URL is split on '/' and is checked against the NonResourceURLs to look for a match.
 	NonResourceURLs kutil.StringSet
+}
+
+// IsPersonalSubjectAccessReview is a marker for PolicyRule.AttributeRestrictions that denotes that subjectaccessreviews on self should be allowed
+type IsPersonalSubjectAccessReview struct {
+	kapi.TypeMeta
 }
 
 // Role is a logical grouping of PolicyRules that can be referenced as a unit by RoleBindings.
@@ -145,9 +150,9 @@ type ResourceAccessReviewResponse struct {
 	// Namespace is the namespace used for the access review
 	Namespace string
 	// Users is the list of users who can perform the action
-	Users []string
+	Users kutil.StringSet
 	// Groups is the list of groups who can perform the action
-	Groups []string
+	Groups kutil.StringSet
 }
 
 // ResourceAccessReview is a means to request a list of which users and groups are authorized to perform the
@@ -188,7 +193,7 @@ type SubjectAccessReview struct {
 	// User is optional.  If both User and Groups are empty, the current authenticated user is used.
 	User string
 	// Groups is optional.  Groups is the list of groups to which the User belongs.
-	Groups []string
+	Groups kutil.StringSet
 	// Content is the actual content of the request for create and update
 	Content kruntime.EmbeddedObject
 	// ResourceName is the name of the resource being requested for a "get" or deleted for a "delete"
@@ -209,9 +214,16 @@ type PolicyBindingList struct {
 	Items []PolicyBinding
 }
 
-// RoleBindingList is a collection of PolicyBindings
+// RoleBindingList is a collection of RoleBindings
 type RoleBindingList struct {
 	kapi.TypeMeta
 	kapi.ListMeta
 	Items []RoleBinding
+}
+
+// RoleList is a collection of Roles
+type RoleList struct {
+	kapi.TypeMeta
+	kapi.ListMeta
+	Items []Role
 }

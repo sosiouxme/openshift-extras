@@ -18,10 +18,10 @@ package master
 
 import (
 	"net"
-	"strconv"
 	"time"
 
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/apiserver"
 
 	"github.com/golang/glog"
@@ -40,7 +40,7 @@ func (m *Master) serviceWriterLoop(stop chan struct{}) {
 			if err := m.createMasterServiceIfNeeded("kubernetes", m.serviceReadWriteIP, m.serviceReadWritePort); err != nil {
 				glog.Errorf("Can't create rw service: %v", err)
 			}
-			if err := m.ensureEndpointsContain("kubernetes", net.JoinHostPort(m.publicIP.String(), strconv.Itoa(int(m.publicReadWritePort)))); err != nil {
+			if err := m.ensureEndpointsContain("kubernetes", m.publicIP, m.publicReadWritePort); err != nil {
 				glog.Errorf("Can't create rw endpoints: %v", err)
 			}
 		}
@@ -65,7 +65,7 @@ func (m *Master) roServiceWriterLoop(stop chan struct{}) {
 			if err := m.createMasterServiceIfNeeded("kubernetes-ro", m.serviceReadOnlyIP, m.serviceReadOnlyPort); err != nil {
 				glog.Errorf("Can't create ro service: %v", err)
 			}
-			if err := m.ensureEndpointsContain("kubernetes-ro", net.JoinHostPort(m.publicIP.String(), strconv.Itoa(int(m.publicReadOnlyPort)))); err != nil {
+			if err := m.ensureEndpointsContain("kubernetes-ro", m.publicIP, m.publicReadOnlyPort); err != nil {
 				glog.Errorf("Can't create ro endpoints: %v", err)
 			}
 		}
@@ -81,7 +81,7 @@ func (m *Master) roServiceWriterLoop(stop chan struct{}) {
 // createMasterNamespaceIfNeeded will create the namespace that contains the master services if it doesn't already exist
 func (m *Master) createMasterNamespaceIfNeeded(ns string) error {
 	ctx := api.NewContext()
-	if _, err := m.namespaceRegistry.Get(ctx, api.NamespaceDefault); err == nil {
+	if _, err := m.namespaceRegistry.GetNamespace(ctx, api.NamespaceDefault); err == nil {
 		// the namespace already exists
 		return nil
 	}
@@ -92,6 +92,9 @@ func (m *Master) createMasterNamespaceIfNeeded(ns string) error {
 		},
 	}
 	_, err := m.storage["namespaces"].(apiserver.RESTCreater).Create(ctx, namespace)
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
 	return err
 }
 
@@ -119,6 +122,9 @@ func (m *Master) createMasterServiceIfNeeded(serviceName string, serviceIP net.I
 		},
 	}
 	_, err := m.storage["services"].(apiserver.RESTCreater).Create(ctx, svc)
+	if err != nil && errors.IsAlreadyExists(err) {
+		err = nil
+	}
 	return err
 }
 
@@ -126,34 +132,35 @@ func (m *Master) createMasterServiceIfNeeded(serviceName string, serviceIP net.I
 // excess endpoints (as determined by m.masterCount). Extra endpoints could appear
 // in the list if, for example, the master starts running on a different machine,
 // changing IP addresses.
-func (m *Master) ensureEndpointsContain(serviceName string, endpoint string) error {
+func (m *Master) ensureEndpointsContain(serviceName string, ip net.IP, port int) error {
 	ctx := api.NewDefaultContext()
 	e, err := m.endpointRegistry.GetEndpoints(ctx, serviceName)
-	if err != nil {
+	if err != nil || e.Protocol != api.ProtocolTCP {
 		e = &api.Endpoints{
 			ObjectMeta: api.ObjectMeta{
 				Name:      serviceName,
 				Namespace: api.NamespaceDefault,
 			},
+			Protocol: api.ProtocolTCP,
 		}
 	}
 	found := false
 	for i := range e.Endpoints {
-		if e.Endpoints[i] == endpoint {
+		ep := &e.Endpoints[i]
+		if ep.IP == ip.String() && ep.Port == port {
 			found = true
 			break
 		}
 	}
 	if !found {
-		e.Endpoints = append(e.Endpoints, endpoint)
+		e.Endpoints = append(e.Endpoints, api.Endpoint{IP: ip.String(), Port: port})
+		if len(e.Endpoints) > m.masterCount {
+			// We append to the end and remove from the beginning, so this should
+			// converge rapidly with all masters performing this operation.
+			e.Endpoints = e.Endpoints[len(e.Endpoints)-m.masterCount:]
+		}
+		return m.endpointRegistry.UpdateEndpoints(ctx, e)
 	}
-	if len(e.Endpoints) > m.masterCount {
-		// We append to the end and remove from the beginning, so this should
-		// converge rapidly with all masters performing this operation.
-		e.Endpoints = e.Endpoints[len(e.Endpoints)-m.masterCount:]
-	} else if found {
-		// We didn't make any changes, no need to actually call update.
-		return nil
-	}
-	return m.endpointRegistry.UpdateEndpoints(ctx, e)
+	// We didn't make any changes, no need to actually call update.
+	return nil
 }

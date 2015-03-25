@@ -17,17 +17,21 @@ limitations under the License.
 package apiserver
 
 import (
+	"fmt"
 	"net/http"
+	"net/url"
 	gpath "path"
 	"time"
 
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/admission"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/api/errors"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/runtime"
 
 	"github.com/emicklei/go-restful"
+	"github.com/evanphx/json-patch"
 	"github.com/golang/glog"
 )
 
@@ -50,6 +54,8 @@ type ScopeNamer interface {
 	SetSelfLink(obj runtime.Object, url string) error
 	// GenerateLink creates a path and query for a given runtime object that represents the canonical path.
 	GenerateLink(req *restful.Request, obj runtime.Object) (path, query string, err error)
+	// GenerateLink creates a path and query for a list that represents the canonical path.
+	GenerateListLink(req *restful.Request) (path, query string, err error)
 }
 
 // GetResource returns a function that handles retrieving a single resource from a RESTStorage object.
@@ -58,7 +64,7 @@ func GetResource(r RESTGetter, ctxFn ContextFunc, namer ScopeNamer, codec runtim
 		w := res.ResponseWriter
 		namespace, name, err := namer.Name(req)
 		if err != nil {
-			notFound(w, req.Request)
+			errorJSON(err, codec, w)
 			return
 		}
 		ctx := ctxFn(req)
@@ -77,25 +83,38 @@ func GetResource(r RESTGetter, ctxFn ContextFunc, namer ScopeNamer, codec runtim
 	}
 }
 
+func parseSelectorQueryParams(query url.Values, version, apiResource string) (label labels.Selector, field fields.Selector, err error) {
+	labelString := query.Get(api.LabelSelectorQueryParam(version))
+	label, err = labels.Parse(labelString)
+	if err != nil {
+		return nil, nil, errors.NewBadRequest(fmt.Sprintf("The 'labels' selector parameter (%s) could not be parsed: %v", labelString, err))
+	}
+
+	convertToInternalVersionFunc := func(label, value string) (newLabel, newValue string, err error) {
+		return api.Scheme.ConvertFieldLabel(version, apiResource, label, value)
+	}
+	fieldString := query.Get(api.FieldSelectorQueryParam(version))
+	field, err = fields.ParseAndTransformSelector(fieldString, convertToInternalVersionFunc)
+	if err != nil {
+		return nil, nil, errors.NewBadRequest(fmt.Sprintf("The 'fields' selector parameter (%s) could not be parsed: %v", fieldString, err))
+	}
+	return label, field, nil
+}
+
 // ListResource returns a function that handles retrieving a list of resources from a RESTStorage object.
-func ListResource(r RESTLister, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec) restful.RouteFunction {
+func ListResource(r RESTLister, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, version, apiResource string) restful.RouteFunction {
 	return func(req *restful.Request, res *restful.Response) {
 		w := res.ResponseWriter
 
 		namespace, err := namer.Namespace(req)
 		if err != nil {
-			notFound(w, req.Request)
+			errorJSON(err, codec, w)
 			return
 		}
 		ctx := ctxFn(req)
 		ctx = api.WithNamespace(ctx, namespace)
 
-		label, err := labels.ParseSelector(req.Request.URL.Query().Get("labels"))
-		if err != nil {
-			errorJSON(err, codec, w)
-			return
-		}
-		field, err := labels.ParseSelector(req.Request.URL.Query().Get("fields"))
+		label, field, err := parseSelectorQueryParams(req.Request.URL.Query(), version, apiResource)
 		if err != nil {
 			errorJSON(err, codec, w)
 			return
@@ -106,7 +125,7 @@ func ListResource(r RESTLister, ctxFn ContextFunc, namer ScopeNamer, codec runti
 			errorJSON(err, codec, w)
 			return
 		}
-		if err := setSelfLink(result, req, namer); err != nil {
+		if err := setListSelfLink(result, req, namer); err != nil {
 			errorJSON(err, codec, w)
 			return
 		}
@@ -115,7 +134,7 @@ func ListResource(r RESTLister, ctxFn ContextFunc, namer ScopeNamer, codec runti
 }
 
 // CreateResource returns a function that will handle a resource creation.
-func CreateResource(r RESTCreater, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, resource string, admit admission.Interface) restful.RouteFunction {
+func CreateResource(r RESTCreater, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, typer runtime.ObjectTyper, resource string, admit admission.Interface) restful.RouteFunction {
 	return func(req *restful.Request, res *restful.Response) {
 		w := res.ResponseWriter
 
@@ -124,7 +143,7 @@ func CreateResource(r RESTCreater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 
 		namespace, err := namer.Namespace(req)
 		if err != nil {
-			notFound(w, req.Request)
+			errorJSON(err, codec, w)
 			return
 		}
 		ctx := ctxFn(req)
@@ -138,6 +157,7 @@ func CreateResource(r RESTCreater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 
 		obj := r.New()
 		if err := codec.DecodeInto(body, obj); err != nil {
+			err = transformDecodeError(typer, err, obj, body)
 			errorJSON(err, codec, w)
 			return
 		}
@@ -169,8 +189,9 @@ func CreateResource(r RESTCreater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 	}
 }
 
-// UpdateResource returns a function that will handle a resource update
-func UpdateResource(r RESTUpdater, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, resource string, admit admission.Interface) restful.RouteFunction {
+// PatchResource returns a function that will handle a resource patch
+// TODO: Eventually PatchResource should just use AtomicUpdate and this routine should be a bit cleaner
+func PatchResource(r RESTPatcher, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, typer runtime.ObjectTyper, resource string, admit admission.Interface) restful.RouteFunction {
 	return func(req *restful.Request, res *restful.Response) {
 		w := res.ResponseWriter
 
@@ -179,7 +200,82 @@ func UpdateResource(r RESTUpdater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 
 		namespace, name, err := namer.Name(req)
 		if err != nil {
-			notFound(w, req.Request)
+			errorJSON(err, codec, w)
+			return
+		}
+
+		obj := r.New()
+		// PATCH requires same permission as UPDATE
+		err = admit.Admit(admission.NewAttributesRecord(obj, namespace, resource, "UPDATE"))
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		ctx := ctxFn(req)
+		ctx = api.WithNamespace(ctx, namespace)
+
+		original, err := r.Get(ctx, name)
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		originalObjJs, err := codec.Encode(original)
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+		patchJs, err := readBody(req.Request)
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+		patchedObjJs, err := jsonpatch.MergePatch(originalObjJs, patchJs)
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		if err := codec.DecodeInto(patchedObjJs, obj); err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+		if err := checkName(obj, name, namespace, namer); err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		result, err := finishRequest(timeout, func() (runtime.Object, error) {
+			// update should never create as previous get would fail
+			obj, _, err := r.Update(ctx, obj)
+			return obj, err
+		})
+		if err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		if err := setSelfLink(result, req, namer); err != nil {
+			errorJSON(err, codec, w)
+			return
+		}
+
+		writeJSON(http.StatusOK, codec, result, w)
+	}
+}
+
+// UpdateResource returns a function that will handle a resource update
+func UpdateResource(r RESTUpdater, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, typer runtime.ObjectTyper, resource string, admit admission.Interface) restful.RouteFunction {
+	return func(req *restful.Request, res *restful.Response) {
+		w := res.ResponseWriter
+
+		// TODO: we either want to remove timeout or document it (if we document, move timeout out of this function and declare it in api_installer)
+		timeout := parseTimeout(req.Request.URL.Query().Get("timeout"))
+
+		namespace, name, err := namer.Name(req)
+		if err != nil {
+			errorJSON(err, codec, w)
 			return
 		}
 		ctx := ctxFn(req)
@@ -193,22 +289,14 @@ func UpdateResource(r RESTUpdater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 
 		obj := r.New()
 		if err := codec.DecodeInto(body, obj); err != nil {
+			err = transformDecodeError(typer, err, obj, body)
 			errorJSON(err, codec, w)
 			return
 		}
 
-		// check the provided name against the request
-		if objNamespace, objName, err := namer.ObjectName(obj); err == nil {
-			if objName != name {
-				errorJSON(errors.NewBadRequest("the name of the object does not match the name on the URL"), codec, w)
-				return
-			}
-			if len(namespace) > 0 {
-				if len(objNamespace) > 0 && objNamespace != namespace {
-					errorJSON(errors.NewBadRequest("the namespace of the object does not match the namespace on the request"), codec, w)
-					return
-				}
-			}
+		if err := checkName(obj, name, namespace, namer); err != nil {
+			errorJSON(err, codec, w)
+			return
 		}
 
 		err = admit.Admit(admission.NewAttributesRecord(obj, namespace, resource, "UPDATE"))
@@ -242,7 +330,7 @@ func UpdateResource(r RESTUpdater, ctxFn ContextFunc, namer ScopeNamer, codec ru
 }
 
 // DeleteResource returns a function that will handle a resource deletion
-func DeleteResource(r RESTDeleter, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, resource, kind string, admit admission.Interface) restful.RouteFunction {
+func DeleteResource(r RESTGracefulDeleter, checkBody bool, ctxFn ContextFunc, namer ScopeNamer, codec runtime.Codec, resource, kind string, admit admission.Interface) restful.RouteFunction {
 	return func(req *restful.Request, res *restful.Response) {
 		w := res.ResponseWriter
 
@@ -251,12 +339,27 @@ func DeleteResource(r RESTDeleter, ctxFn ContextFunc, namer ScopeNamer, codec ru
 
 		namespace, name, err := namer.Name(req)
 		if err != nil {
-			notFound(w, req.Request)
+			errorJSON(err, codec, w)
 			return
 		}
 		ctx := ctxFn(req)
 		if len(namespace) > 0 {
 			ctx = api.WithNamespace(ctx, namespace)
+		}
+
+		options := &api.DeleteOptions{}
+		if checkBody {
+			body, err := readBody(req.Request)
+			if err != nil {
+				errorJSON(err, codec, w)
+				return
+			}
+			if len(body) > 0 {
+				if err := codec.DecodeInto(body, options); err != nil {
+					errorJSON(err, codec, w)
+					return
+				}
+			}
 		}
 
 		err = admit.Admit(admission.NewAttributesRecord(nil, namespace, resource, "DELETE"))
@@ -266,7 +369,7 @@ func DeleteResource(r RESTDeleter, ctxFn ContextFunc, namer ScopeNamer, codec ru
 		}
 
 		result, err := finishRequest(timeout, func() (runtime.Object, error) {
-			return r.Delete(ctx, name)
+			return r.Delete(ctx, name, options)
 		})
 		if err != nil {
 			errorJSON(err, codec, w)
@@ -303,8 +406,10 @@ type resultFunc func() (runtime.Object, error)
 // finishRequest makes a given resultFunc asynchronous and handles errors returned by the response.
 // Any api.Status object returned is considered an "error", which interrupts the normal response flow.
 func finishRequest(timeout time.Duration, fn resultFunc) (result runtime.Object, err error) {
-	ch := make(chan runtime.Object)
-	errCh := make(chan error)
+	// these channels need to be buffered to prevent the goroutine below from hanging indefinitely
+	// when the select statement reads something other than the one the goroutine sends on.
+	ch := make(chan runtime.Object, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		if result, err := fn(); err != nil {
 			errCh <- err
@@ -326,29 +431,28 @@ func finishRequest(timeout time.Duration, fn resultFunc) (result runtime.Object,
 	}
 }
 
+// transformDecodeError adds additional information when a decode fails.
+func transformDecodeError(typer runtime.ObjectTyper, baseErr error, into runtime.Object, body []byte) error {
+	_, kind, err := typer.ObjectVersionAndKind(into)
+	if err != nil {
+		return err
+	}
+	if version, dataKind, err := typer.DataVersionAndKind(body); err == nil && len(dataKind) > 0 {
+		return errors.NewBadRequest(fmt.Sprintf("%s in version %s cannot be handled as a %s: %v", dataKind, version, kind, baseErr))
+	}
+	return errors.NewBadRequest(fmt.Sprintf("the object provided is unrecognized (must be of type %s): %v", kind, baseErr))
+}
+
 // setSelfLink sets the self link of an object (or the child items in a list) to the base URL of the request
 // plus the path and query generated by the provided linkFunc
 func setSelfLink(obj runtime.Object, req *restful.Request, namer ScopeNamer) error {
-	if runtime.IsListType(obj) {
-		// Set self-link of objects in the list.
-		items, err := runtime.ExtractList(obj)
-		if err != nil {
-			return err
-		}
-		for i := range items {
-			if err := setSelfLink(items[i], req, namer); err != nil {
-				return err
-			}
-		}
-		return runtime.SetList(obj, items)
-	}
-
+	// TODO: SelfLink generation should return a full URL?
 	path, query, err := namer.GenerateLink(req, obj)
 	if err == errEmptyName {
 		return nil
 	}
 	if err != nil {
-		glog.V(5).Infof("error generating link: %v", err)
+		glog.V(5).Infof("Unable to generate self link: %v", err)
 		return nil
 	}
 
@@ -359,4 +463,54 @@ func setSelfLink(obj runtime.Object, req *restful.Request, namer ScopeNamer) err
 	newURL.Fragment = ""
 
 	return namer.SetSelfLink(obj, newURL.String())
+}
+
+// checkName checks the provided name against the request
+func checkName(obj runtime.Object, name, namespace string, namer ScopeNamer) error {
+	if objNamespace, objName, err := namer.ObjectName(obj); err == nil {
+		if objName != name {
+			return errors.NewBadRequest("the name of the object does not match the name on the URL")
+		}
+		if len(namespace) > 0 {
+			if len(objNamespace) > 0 && objNamespace != namespace {
+				return errors.NewBadRequest("the namespace of the object does not match the namespace on the request")
+			}
+		}
+	}
+	return nil
+}
+
+// setListSelfLink sets the self link of a list to the base URL, then sets the self links
+// on all child objects returned.
+func setListSelfLink(obj runtime.Object, req *restful.Request, namer ScopeNamer) error {
+	if !runtime.IsListType(obj) {
+		return nil
+	}
+
+	// TODO: List SelfLink generation should return a full URL?
+	path, query, err := namer.GenerateListLink(req)
+	if err != nil {
+		return err
+	}
+	newURL := *req.Request.URL
+	newURL.Path = path
+	newURL.RawQuery = query
+	// use the path that got us here
+	newURL.Fragment = ""
+	if err := namer.SetSelfLink(obj, newURL.String()); err != nil {
+		glog.V(4).Infof("Unable to set self link on object: %v", err)
+	}
+
+	// Set self-link of objects in the list.
+	items, err := runtime.ExtractList(obj)
+	if err != nil {
+		return err
+	}
+	for i := range items {
+		if err := setSelfLink(items[i], req, namer); err != nil {
+			return err
+		}
+	}
+	return runtime.SetList(obj, items)
+
 }

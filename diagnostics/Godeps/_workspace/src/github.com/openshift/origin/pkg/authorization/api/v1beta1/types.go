@@ -20,7 +20,7 @@ type PolicyRule struct {
 	Verbs []string `json:"verbs"`
 	// AttributeRestrictions will vary depending on what the Authorizer/AuthorizationAttributeBuilder pair supports.
 	// If the Authorizer does not recognize how to handle the AttributeRestrictions, the Authorizer should report an error.
-	AttributeRestrictions kruntime.RawExtension `json:"attributeRestrictions"`
+	AttributeRestrictions kruntime.RawExtension `json:"attributeRestrictions,omitempty"`
 	// ResourceKinds is a list of resources this rule applies to.  ResourceAll represents all resources.
 	// DEPRECATED
 	ResourceKinds []string `json:"resourceKinds,omitempty"`
@@ -31,6 +31,11 @@ type PolicyRule struct {
 	// NonResourceURLsSlice is a set of partial urls that a user should have access to.  *s are allowed, but only as the full, final step in the path
 	// This name is intentionally different than the internal type so that the DefaultConvert works nicely and because the ordering may be different.
 	NonResourceURLsSlice []string `json:"nonResourceURLs,omitempty"`
+}
+
+// IsPersonalSubjectAccessReview is a marker for PolicyRule.AttributeRestrictions that denotes that subjectaccessreviews on self should be allowed
+type IsPersonalSubjectAccessReview struct {
+	kapi.TypeMeta `json:",inline"`
 }
 
 // Role is a logical grouping of PolicyRules that can be referenced as a unit by RoleBindings.
@@ -95,9 +100,9 @@ type ResourceAccessReviewResponse struct {
 	// Namespace is the namespace used for the access review
 	Namespace string `json:"namespace,omitempty"`
 	// Users is the list of users who can perform the action
-	Users []string `json:"users"`
+	UsersSlice []string `json:"users"`
 	// Groups is the list of groups who can perform the action
-	Groups []string `json:"groups"`
+	GroupsSlice []string `json:"groups"`
 }
 
 // ResourceAccessReview is a means to request a list of which users and groups are authorized to perform the
@@ -148,7 +153,7 @@ type SubjectAccessReview struct {
 	// User is optional.  If both User and Groups are empty, the current authenticated user is used.
 	User string `json:"user"`
 	// Groups is optional.  Groups is the list of groups to which the User belongs.
-	Groups []string `json:"groups"`
+	GroupsSlice []string `json:"groups"`
 	// Content is the actual content of the request for create and update
 	Content kruntime.RawExtension `json:"content,omitempty"`
 	// ResourceName is the name of the resource being requested for a "get" or deleted for a "delete"
@@ -169,9 +174,16 @@ type PolicyBindingList struct {
 	Items         []PolicyBinding `json:"items"`
 }
 
-// RoleBindingList is a collection of PolicyBindings
+// RoleBindingList is a collection of RoleBindings
 type RoleBindingList struct {
-	kapi.TypeMeta
-	kapi.ListMeta
-	Items []RoleBinding
+	kapi.TypeMeta `json:",inline"`
+	kapi.ListMeta `json:"metadata,omitempty"`
+	Items         []RoleBinding `json:"items"`
+}
+
+// RoleList is a collection of Roles
+type RoleList struct {
+	kapi.TypeMeta `json:",inline"`
+	kapi.ListMeta `json:"metadata,omitempty"`
+	Items         []Role `json:"items"`
 }

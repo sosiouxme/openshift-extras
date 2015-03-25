@@ -25,8 +25,9 @@ type describeClient struct {
 func TestDescribeFor(t *testing.T) {
 	c := &client.Client{}
 	testTypesList := []string{
-		"Build", "BuildConfig", "Deployment", "DeploymentConfig",
-		"Image", "ImageRepository", "Route", "Project",
+		"Build", "BuildConfig", "BuildLog", "Deployment", "DeploymentConfig",
+		"Image", "ImageRepository", "ImageRepositoryTag", "ImageStreamImage",
+		"Route", "Project",
 	}
 	for _, o := range testTypesList {
 		_, ok := DescriberFor(o, c, &kclient.Fake{}, "")
@@ -43,9 +44,12 @@ func TestDescribers(t *testing.T) {
 	testDescriberList := []kubectl.Describer{
 		&BuildDescriber{c},
 		&BuildConfigDescriber{c, ""},
+		&BuildLogDescriber{c},
 		&DeploymentDescriber{c},
 		&ImageDescriber{c},
 		&ImageRepositoryDescriber{c},
+		&ImageRepositoryTagDescriber{c},
+		&ImageStreamImageDescriber{c},
 		&RouteDescriber{c},
 		&ProjectDescriber{c},
 		&PolicyDescriber{c},

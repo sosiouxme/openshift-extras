@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	kapi "github.com/GoogleCloudPlatform/kubernetes/pkg/api/v1beta3"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/util"
 )
 
 // Build encapsulates the inputs needed to produce a new deployable image, as well as
@@ -24,6 +25,17 @@ type Build struct {
 
 	// Cancelled describes if a cancelling event was triggered for the build.
 	Cancelled bool `json:"cancelled,omitempty"`
+
+	// StartTimestamp is a timestamp representing the server time when this Build started
+	// running in a Pod.
+	// It is represented in RFC3339 form and is in UTC.
+	StartTimestamp *util.Time `json:"startTimestamp,omitempty"`
+
+	// CompletionTimestamp is a timestamp representing the server time when this Build was
+	// finished, whether that build failed or succeeded.  It reflects the time at which
+	// the Pod running the Build terminated.
+	// It is represented in RFC3339 form and is in UTC.
+	CompletionTimestamp *util.Time `json:"completionTimestamp,omitempty"`
 }
 
 // BuildParameters encapsulates all the inputs necessary to represent a build.
@@ -36,7 +48,7 @@ type BuildParameters struct {
 	Revision *SourceRevision `json:"revision,omitempty"`
 
 	// Strategy defines how to perform a build.
-	Strategy BuildStrategy `json:"strategy,omitempty"`
+	Strategy BuildStrategy `json:"strategy"`
 
 	// Output describes the Docker image the Strategy should produce.
 	Output BuildOutput `json:"output,omitempty"`
@@ -130,7 +142,7 @@ type SourceControlUser struct {
 // BuildStrategy contains the details of how to perform a build.
 type BuildStrategy struct {
 	// Type is the kind of build strategy.
-	Type BuildStrategyType `json:"type,omitempty"`
+	Type BuildStrategyType `json:"type"`
 
 	// DockerStrategy holds the parameters to the Docker build strategy.
 	DockerStrategy *DockerBuildStrategy `json:"dockerStrategy,omitempty"`
@@ -202,7 +214,16 @@ type STIBuildStrategy struct {
 	BuilderImage string `json:"builderImage,omitempty"`
 
 	// Image is the image used to execute the build.
+	// For BuildConfigs, From takes precedence.
 	Image string `json:"image,omitempty"`
+
+	// Tag is the name of image repository tag to be used as the build image, it only
+	// applies when From is specified.
+	Tag string `json:"tag,omitempty"`
+
+	// From is reference to an image repository from where the docker image should be pulled
+	// Only allowed in BuildConfigs, Builds use the Image field exclusively.
+	From *kapi.ObjectReference `json:"from,omitempty"`
 
 	// Additional environment variables you want to pass into a builder container
 	Env []kapi.EnvVar `json:"env,omitempty"`
@@ -224,6 +245,11 @@ type BuildOutput struct {
 	// this field takes priority over DockerImageReference. This value will be used to look up
 	// a Docker image repository to push to.
 	To *kapi.ObjectReference `json:"to,omitempty"`
+
+	// pushSecretName is the name of a Secret that would be used for setting
+	// up the authentication for executing the Docker push to authentication
+	// enabled Docker Registry (or Docker Hub).
+	PushSecretName string `json:"pushSecretName,omitempty"`
 
 	// Tag is the "version" that will be set on the remote server when the image is created. This
 	// field is only used if the To field is set, and is ignored when DockerImageReference is used.

@@ -1,19 +1,22 @@
 package client
 
 import (
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/fields"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
 
 	imageapi "github.com/openshift/origin/pkg/image/api"
 )
 
-// FakeImages implements ImageInterface. Meant to be embedded into a struct to get a default
-// implementation. This makes faking out just the methods you want to test easier.
+// FakeImages implements ImageInterface. Meant to be embedded into a struct to
+// get a default implementation. This makes faking out just the methods you
+// want to test easier.
 type FakeImages struct {
-	Fake      *Fake
-	Namespace string
+	Fake *Fake
 }
 
-func (c *FakeImages) List(label, field labels.Selector) (*imageapi.ImageList, error) {
+var _ ImageInterface = &FakeImages{}
+
+func (c *FakeImages) List(label labels.Selector, field fields.Selector) (*imageapi.ImageList, error) {
 	c.Fake.Actions = append(c.Fake.Actions, FakeAction{Action: "list-images"})
 	return &imageapi.ImageList{}, nil
 }

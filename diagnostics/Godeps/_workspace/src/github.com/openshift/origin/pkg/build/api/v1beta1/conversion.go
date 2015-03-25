@@ -53,21 +53,35 @@ func init() {
 		func(in *newer.STIBuildStrategy, out *STIBuildStrategy, s conversion.Scope) error {
 			out.BuilderImage = in.Image
 			out.Image = in.Image
+			if in.From != nil {
+				out.From = &kapi.ObjectReference{
+					Name:      in.From.Name,
+					Namespace: in.From.Namespace,
+					Kind:      "ImageRepository",
+				}
+			}
+			out.Tag = in.Tag
 			out.Scripts = in.Scripts
 			out.Clean = !in.Incremental
-			s.Convert(&in.Env, &out.Env, 0)
-			return nil
+			return s.Convert(&in.Env, &out.Env, 0)
 		},
 		func(in *STIBuildStrategy, out *newer.STIBuildStrategy, s conversion.Scope) error {
+			if in.From != nil {
+				out.From = &api.ObjectReference{
+					Name:      in.From.Name,
+					Namespace: in.From.Namespace,
+					Kind:      "ImageRepository",
+				}
+			}
+			out.Tag = in.Tag
 			out.Scripts = in.Scripts
 			out.Incremental = !in.Clean
-			s.Convert(&in.Env, &out.Env, 0)
 			if len(in.Image) != 0 {
 				out.Image = in.Image
 			} else {
 				out.Image = in.BuilderImage
 			}
-			return nil
+			return s.Convert(&in.Env, &out.Env, 0)
 		},
 		// Rename DockerBuildStrategy.BaseImage to DockerBuildStrategy.Image
 		func(in *newer.DockerBuildStrategy, out *DockerBuildStrategy, s conversion.Scope) error {
@@ -90,11 +104,16 @@ func init() {
 				return err
 			}
 			out.Tag = in.Tag
+			out.PushSecretName = in.PushSecretName
 			if len(in.DockerImageReference) > 0 {
 				out.DockerImageReference = in.DockerImageReference
-				registry, namespace, name, tag, _ := image.SplitDockerPullSpec(in.DockerImageReference)
-				out.Registry = registry
-				out.ImageTag = image.JoinDockerPullSpec("", namespace, name, tag)
+				ref, err := image.ParseDockerImageReference(in.DockerImageReference)
+				if err != nil {
+					return err
+				}
+				out.Registry = ref.Registry
+				ref.Registry = ""
+				out.ImageTag = ref.String()
 			}
 			return nil
 		},
@@ -103,16 +122,18 @@ func init() {
 				return err
 			}
 			out.Tag = in.Tag
+			out.PushSecretName = in.PushSecretName
 			if len(in.DockerImageReference) > 0 {
 				out.DockerImageReference = in.DockerImageReference
 				return nil
 			}
 			if len(in.ImageTag) != 0 {
-				_, namespace, name, tag, err := image.SplitDockerPullSpec(in.ImageTag)
+				ref, err := image.ParseDockerImageReference(in.ImageTag)
 				if err != nil {
 					return err
 				}
-				out.DockerImageReference = image.JoinDockerPullSpec(in.Registry, namespace, name, tag)
+				ref.Registry = in.Registry
+				out.DockerImageReference = ref.String()
 			}
 			return nil
 		},

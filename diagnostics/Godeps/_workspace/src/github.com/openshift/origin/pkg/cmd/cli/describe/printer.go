@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"text/tabwriter"
 
 	kctl "github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/labels"
@@ -25,14 +26,15 @@ var (
 	buildConfigColumns      = []string{"NAME", "TYPE", "SOURCE"}
 	imageColumns            = []string{"NAME", "DOCKER REF"}
 	imageRepositoryColumns  = []string{"NAME", "DOCKER REPO", "TAGS"}
-	projectColumns          = []string{"NAME", "DISPLAY NAME"}
+	projectColumns          = []string{"NAME", "DISPLAY NAME", "STATUS"}
 	routeColumns            = []string{"NAME", "HOST/PORT", "PATH", "SERVICE", "LABELS"}
 	deploymentColumns       = []string{"NAME", "STATUS", "CAUSE"}
 	deploymentConfigColumns = []string{"NAME", "TRIGGERS", "LATEST VERSION"}
 	templateColumns         = []string{"NAME", "DESCRIPTION", "PARAMETERS", "OBJECTS"}
-	parameterColumns        = []string{"NAME", "DESCRIPTION", "GENERATOR", "VALUE"}
 	policyColumns           = []string{"NAME", "ROLES", "LAST MODIFIED"}
 	policyBindingColumns    = []string{"NAME", "ROLE BINDINGS", "LAST MODIFIED"}
+	roleBindingColumns      = []string{"NAME", "ROLE", "USERS", "GROUPS"}
+	roleColumns             = []string{"NAME"}
 
 	oauthClientColumns              = []string{"NAME", "SECRET", "WWW-CHALLENGE", "REDIRECT URIS"}
 	oauthClientAuthorizationColumns = []string{"NAME", "USER NAME", "CLIENT NAME", "SCOPES"}
@@ -67,6 +69,10 @@ func NewHumanReadablePrinter(noHeaders bool) *kctl.HumanReadablePrinter {
 	p.Handler(policyColumns, printPolicyList)
 	p.Handler(policyBindingColumns, printPolicyBinding)
 	p.Handler(policyBindingColumns, printPolicyBindingList)
+	p.Handler(roleBindingColumns, printRoleBinding)
+	p.Handler(roleBindingColumns, printRoleBindingList)
+	p.Handler(roleColumns, printRole)
+	p.Handler(roleColumns, printRoleList)
 
 	p.Handler(oauthClientColumns, printOAuthClient)
 	p.Handler(oauthClientColumns, printOAuthClientList)
@@ -83,6 +89,25 @@ func NewHumanReadablePrinter(noHeaders bool) *kctl.HumanReadablePrinter {
 }
 
 const templateDescriptionLen = 80
+
+// PrintTemplateParameters the Template parameters with their default values
+func PrintTemplateParameters(params []templateapi.Parameter, output io.Writer) error {
+	w := tabwriter.NewWriter(output, 20, 5, 3, ' ', 0)
+	defer w.Flush()
+	parameterColumns := []string{"NAME", "DESCRIPTION", "GENERATOR", "VALUE"}
+	fmt.Fprintf(w, "%s\n", strings.Join(parameterColumns, "\t"))
+	for _, p := range params {
+		value := p.Value
+		if len(p.Generate) != 0 {
+			value = p.From
+		}
+		_, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.Description, p.Generate, value)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func printTemplate(t *templateapi.Template, w io.Writer) error {
 	description := ""
@@ -114,20 +139,6 @@ func printTemplate(t *templateapi.Template, w io.Writer) error {
 	}
 	_, err := fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", t.Name, description, params, len(t.Objects))
 	return err
-}
-
-func printTemplateParameters(t *templateapi.Template, w io.Writer) error {
-	for _, p := range t.Parameters {
-		value := p.Value
-		if len(p.Generate) != 0 {
-			value = p.From
-		}
-		_, err := fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.Description, p.Generate, value)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func printTemplateList(list *templateapi.TemplateList, w io.Writer) error {
@@ -208,7 +219,7 @@ func printImageRepositoryList(repos *imageapi.ImageRepositoryList, w io.Writer) 
 }
 
 func printProject(project *projectapi.Project, w io.Writer) error {
-	_, err := fmt.Fprintf(w, "%s\t%s\n", project.Name, project.DisplayName)
+	_, err := fmt.Fprintf(w, "%s\t%s\t%s\n", project.Name, project.DisplayName, project.Status.Phase)
 	return err
 }
 
@@ -313,6 +324,36 @@ func printPolicyBinding(policyBinding *authorizationapi.PolicyBinding, w io.Writ
 func printPolicyBindingList(list *authorizationapi.PolicyBindingList, w io.Writer) error {
 	for _, policyBinding := range list.Items {
 		if err := printPolicyBinding(&policyBinding, w); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func printRole(role *authorizationapi.Role, w io.Writer) error {
+	_, err := fmt.Fprintf(w, "%s\n", role.Name)
+	return err
+}
+
+func printRoleList(list *authorizationapi.RoleList, w io.Writer) error {
+	for _, role := range list.Items {
+		if err := printRole(&role, w); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func printRoleBinding(roleBinding *authorizationapi.RoleBinding, w io.Writer) error {
+	_, err := fmt.Fprintf(w, "%s\t%s\t%v\t%v\n", roleBinding.Name, roleBinding.RoleRef.Namespace+"/"+roleBinding.RoleRef.Name, roleBinding.Users.List(), roleBinding.Groups.List())
+	return err
+}
+
+func printRoleBindingList(list *authorizationapi.RoleBindingList, w io.Writer) error {
+	for _, roleBinding := range list.Items {
+		if err := printRoleBinding(&roleBinding, w); err != nil {
 			return err
 		}
 	}
