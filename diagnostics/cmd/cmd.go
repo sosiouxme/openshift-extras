@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	"../client"
-	"../cmd/flags"
-	"../discovery"
-	"../log"
-	"../systemd"
-	"../types"
+	"github.com/openshift/openshift-extras/diagnostics/client"
+	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
+	"github.com/openshift/openshift-extras/diagnostics/discovery"
+	"github.com/openshift/openshift-extras/diagnostics/log"
+	"github.com/openshift/openshift-extras/diagnostics/systemd"
+	"github.com/openshift/openshift-extras/diagnostics/types"
 	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/spf13/cobra"
 )

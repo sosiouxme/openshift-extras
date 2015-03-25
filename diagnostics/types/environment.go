@@ -1,9 +1,9 @@
 package types
 
 import (
-	"../cmd/flags"
 	kubeclient "github.com/GoogleCloudPlatform/kubernetes/pkg/client"
 	kccmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
+	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	osclient "github.com/openshift/origin/pkg/client"
 	osclientcmd "github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/spf13/cobra"

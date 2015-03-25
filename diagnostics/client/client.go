@@ -1,11 +1,11 @@
 package client
 
 import (
-	"../log"
-	"../types"
 	"fmt"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
 	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl/resource"
+	"github.com/openshift/openshift-extras/diagnostics/log"
+	"github.com/openshift/openshift-extras/diagnostics/types"
 	"regexp"
 	"strings"
 )
