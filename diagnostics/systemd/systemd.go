@@ -278,6 +278,42 @@ so check there for problems.
 
 The OpenShift node will not work on this host until this is resolved.`,
 			},
+			logMatcher{
+				Regexp: regexp.MustCompile(`^Unable to open the database file: unable to open database file$`),
+				Level:  log.ErrorLevel,
+				Id:     "sdLogDopenDB",
+				Interpretation: `
+This indicates that docker failed to record its state to its database.
+The most likely reason is that it is out of disk space. It is also
+possible for other device or permissions problems to be at fault.
+
+Sometimes this is due to excess completed containers not being cleaned
+up. You can delete all completed containers with this command (running
+containers will not be deleted):
+
+  # docker rm $(docker ps -qa)
+
+Whatever the reason, docker will not function in this state.
+The OpenShift node will not work on this host until this is resolved.`,
+			},
+			logMatcher{
+				Regexp: regexp.MustCompile(`no space left on device$`),
+				Level:  log.ErrorLevel,
+				Id:     "sdLogDfull",
+				Interpretation: `
+This indicates that docker has run out of space for container volumes
+or metadata (by default, stored in /var/lib/docker, but configurable).
+
+docker will not function in this state. It requires that disk space be
+added to the relevant filesystem or files deleted to make space.
+Sometimes this is due to excess completed containers not being cleaned
+up. You can delete all completed containers with this command (running
+containers will not be deleted):
+
+  # docker rm $(docker ps -qa)
+
+The OpenShift node will not work on this host until this is resolved.`,
+			},
 			logMatcher{ // generic error seen - do this last
 				Regexp: regexp.MustCompile(`\\slevel="fatal"\\s`),
 				Level:  log.ErrorLevel,
