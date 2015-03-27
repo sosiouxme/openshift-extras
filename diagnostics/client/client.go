@@ -62,9 +62,9 @@ useful to use this as a base if available.`, "context": cc})
 		Description: "Test contacting the OpenShift master",
 		Run: func(env *types.Environment) {
 			//TODO: try setting --context flag to get different contexts from same factory?
-			mapper, typer := env.Factory.Object(env.Command)
+			mapper, typer := env.Factory.Object()
 			_, err := resource.NewBuilder(mapper, typer, env.Factory.ClientMapperForCommand(env.Command)).
-				ResourceTypeOrNameArgs("projects").
+				ResourceTypeOrNameArgs(true, "projects").
 				Latest().
 				Do().Object()
 			if err != nil {

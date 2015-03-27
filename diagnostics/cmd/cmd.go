@@ -43,7 +43,7 @@ func NewCommand() *cobra.Command {
 		// set up openshift/kube client objects
 		env.Command = c
 		env.Factory = factory
-		env.OsClient, env.KubeClient, _ = factory.Clients(c)
+		env.OsClient, env.KubeClient, _ = factory.Clients()
 		// run the diagnostics
 		Diagnose(env)
 		// summarize...

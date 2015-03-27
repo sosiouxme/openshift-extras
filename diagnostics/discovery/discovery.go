@@ -253,7 +253,7 @@ being merged together.`, "path": file.Name()})
 // ----------------------------------------------------------
 // Look for .kubeconfig in a number of possible locations
 func findKubeconfig(env *types.Environment) (file *os.File) {
-	fPath := env.Flags.OpenshiftFlags.Lookup("kubeconfig").Value.String()
+	fPath := env.Flags.OpenshiftFlags.Lookup("config").Value.String()
 	kcPath := os.Getenv("KUBECONFIG")
 	adminPath1 := "/var/lib/openshift/openshift.certificates.d/admin/.kubeconfig" // enterprise
 	adminPath2 := "/openshift.certificates.d/admin/.kubeconfig"                   // origin systemd
