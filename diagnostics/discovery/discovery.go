@@ -3,8 +3,7 @@ package discovery
 import (
 	"fmt"
 	//XXX "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
-	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
-	clientcmdlatest "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api/latest"
+	"github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd"
 	"github.com/openshift/openshift-extras/diagnostics/cmd/flags"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
@@ -226,9 +225,7 @@ func readKubeconfig(env *types.Environment) {
 		if buffer, err := ioutil.ReadAll(file); err != nil {
 			log.Errorf("discKCReadErr", "Unexpected error while reading .kubeconfig file (%s): %v", file.Name(), err)
 		} else {
-			config := &clientcmdapi.Config{}
-			if err := clientcmdlatest.Codec.DecodeInto(buffer, config); err != nil {
-				// XXX: in post-0.4 rebase, becomes clientcmd.Load(buffer) - if we care
+			if config, err := clientcmd.Load(buffer); err != nil {
 				log.Errorf("discKCYamlErr", `Error reading YAML from kubeconfig file (%s):
   %v
 This file may have been truncated or mis-edited.
