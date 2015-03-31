@@ -3,24 +3,21 @@ package client
 import (
 	"fmt"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
-	"github.com/GoogleCloudPlatform/kubernetes/pkg/kubectl/resource"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
-	"regexp"
-	"strings"
 )
 
 var Diagnostics = map[string]types.Diagnostic{
 	"KubeconfigContexts": types.Diagnostic{
 		Description: "Test that kubeconfig contexts and current context are ok",
 		Condition: func(env *types.Environment) (skip bool, reason string) {
-			if env.Kubeconfig == nil {
+			if env.ClientConfigRaw == nil {
 				return true, "There is no .kubeconfig file"
 			}
 			return false, ""
 		},
 		Run: func(env *types.Environment) {
-			kc := env.Kubeconfig
+			kc := env.ClientConfigRaw
 			log.Info("kubeconfigTest", "Testing server configuration(s) from kubeconfig")
 			cc := kc.CurrentContext
 			ccSuccess := false
@@ -55,156 +52,6 @@ manually editing your kubeconfig. If this is a simple typo, you may be
 able to fix it manually.
 The OpenShift master creates a fresh kubeconfig when it is started; it may be
 useful to use this as a base if available.`, "context": cc})
-			}
-		},
-	},
-	"ContactMaster": types.Diagnostic{
-		Description: "Test contacting the OpenShift master",
-		Run: func(env *types.Environment) {
-			//TODO: try setting --context flag to get different contexts from same factory?
-			mapper, typer := env.Factory.Object()
-			_, err := resource.NewBuilder(mapper, typer, env.Factory.ClientMapperForCommand(env.Command)).
-				ResourceTypeOrNameArgs(true, "projects").
-				Latest().
-				Do().Object()
-			if err != nil {
-				noResolveRx := regexp.MustCompile("dial tcp: lookup (\\S+): no such host")
-				unknownCaMsg := "x509: certificate signed by unknown authority"
-				unneededCaMsg := "specifying a root certificates file with the insecure flag is not allowed"
-				invalidCertNameRx := regexp.MustCompile("x509: certificate is valid for (\\S+, )+not (\\S+)")
-				connRefusedRx := regexp.MustCompile("dial tcp (\\S+): connection refused")
-				connTimeoutRx := regexp.MustCompile("dial tcp (\\S+): connection timed out")
-				unauthenticatedMsg := `403 Forbidden: Forbidden: "/osapi/v1beta1/projects?namespace=" denied by default`
-
-				malformedHTTPMsg := "malformed HTTP response"
-				malformedTLSMsg := "tls: oversized record received with length"
-
-				// interpret the error message for mere mortals
-				msg := err.Error()
-				var reason, errId string
-				switch {
-				case noResolveRx.MatchString(msg):
-					errId, reason = "clientNoResolve", `
-This usually means that the hostname does not resolve to an IP.
-Hostnames should usually be resolved via an /etc/hosts file or DNS.
-Ensure that the hostname resolves correctly from your host before proceeding.
-Of course, you could also simply have the wrong hostname specified.
-`
-				case strings.Contains(msg, unknownCaMsg):
-					errId, reason = "clientUnknownCa", `
-This means that we cannot validate the certificate in use by the
-OpenShift API server, so we cannot securely communicate with it.
-Connections could be intercepted and your credentials stolen.
-
-Since the server certificate we see when connecting is not validated
-by public certificate authorities (CAs), you probably need to specify a
-certificate from a private CA to validate the connection.
-
-You may be specifying the wrong CA cert, or none, or there could
-actually be a man-in-the-middle attempting to intercept your
-connection.  If you are unconcerned about any of this, you can add the
---insecure-skip-tls-verify flag to bypass secure (TLS) verification,
-but this is risky and should not be necessary.
-** Connections could be intercepted and your credentials stolen. **
-`
-				case strings.Contains(msg, unneededCaMsg):
-					errId, reason = "clientUnneededCa", `
-This means that for client connections to the OpenShift API server, you
-(or your kubeconfig) specified both a validating certificate authority
-and that the client should bypass connection security validation.
-
-This is not allowed because it is likely to be a mistake.
-
-If you want to use --insecure-skip-tls-verify to bypass security (which
-is usually a bad idea anyway), then you need to also clear the CA cert
-from your command line options or kubeconfig file(s). Of course, it
-would be far better to obtain and use a correct CA cert.
-`
-				case invalidCertNameRx.MatchString(msg):
-					match := invalidCertNameRx.FindStringSubmatch(msg)
-					serverHost := match[len(match)-1]
-					errId, reason = "clientInvCertName", fmt.Sprintf(`
-This means that the certificate in use by the OpenShift API server
-(master) does not match the hostname by which you are addressing it:
-  %s
-so a secure connection is not allowed. In theory, this *could* mean that
-someone is intercepting your connection and presenting a certificate
-that is valid but for a different server, which is why secure validation
-fails in this case.
-
-However, the most likely explanation is that the server certificate
-needs to be updated to include the name you are using to reach it.
-
-If the OpenShift server is generating its own certificates (which
-is default), then the --public-master flag on the OpenShift master is
-usually the easiest way to do this. If you need something more complicated
-(for instance, multiple public addresses for the API, or your own CA),
-then you will need to custom-generate the server certificate with the
-right names yourself.
-
-If you are unconcerned about any of this, you can add the
---insecure-skip-tls-verify flag to bypass secure (TLS) verification,
-but this is risky and should not be necessary.
-** Connections could be intercepted and your credentials stolen. **
-`, serverHost)
-				case connRefusedRx.MatchString(msg):
-					errId, reason = "clientInvCertName", `
-This means that when we tried to connect to the OpenShift API
-server (master), we reached the host, but nothing accepted the port
-connection. This could mean that the OpenShift master is stopped, or
-that a firewall or security policy is blocking access at that port.
-
-You will not be able to connect or do anything at all with OpenShift
-until this server problem is resolved or you specify a corrected
-server address.`
-				case connTimeoutRx.MatchString(msg):
-					errId, reason = "clientConnTimeout", `
-This means that when we tried to connect to the OpenShift API server
-(master), we could not reach the host at all.
-* You may have specified the wrong host address.
-* This could mean the host is completely unavailable (down).
-* This could indicate a routing problem or a firewall that simply
-  drops requests rather than responding by reseting the connection.
-* It does not generally mean that DNS name resolution failed (which
-  would be a different error) though the problem could be that it
-  gave the wrong address.`
-				case strings.Contains(msg, malformedHTTPMsg):
-					errId, reason = "clientMalformedHTTP", `
-This means that when we tried to connect to the OpenShift API server
-(master) with a plain HTTP connection, the server did not speak
-HTTP back to us. The most common explanation is that a secure server
-is listening but you specified an http: connection instead of https:.
-There could also be another service listening at the intended port
-speaking some other protocol entirely.
-
-You will not be able to connect or do anything at all with OpenShift
-until this server problem is resolved or you specify a corrected
-server address.`
-				case strings.Contains(msg, malformedTLSMsg):
-					errId, reason = "clientMalformedTLS", `
-This means that when we tried to connect to the OpenShift API server
-(master) with a secure HTTPS connection, the server did not speak
-HTTPS back to us. The most common explanation is that the server
-listening at that port is not the secure server you expected - it
-may be a non-secure HTTP server or the wrong service may be
-listening there, or you may have specified an incorrect port.
-
-You will not be able to connect or do anything at all with OpenShift
-until this server problem is resolved or you specify a corrected
-server address.`
-				case strings.Contains(msg, unauthenticatedMsg):
-					errId, reason = "clientUnauth", `
-This means that when we tried to make a request to the OpenShift API
-server, your kubeconfig did not present valid credentials to
-authenticate your client. Credentials generally consist of a client
-key/certificate or an access token. Your kubeconfig may not have
-presented any, or they may be invalid.`
-				default:
-					errId, reason = "clientUnknownConnErr", `Diagnostics does not have an explanation for what this means. Please report this error so one can be added.`
-				}
-				log.Error(errId, fmt.Sprintf("(%T) %[1]v\n%s", err, reason))
-			} else {
-				log.Info("clientConSuccess", "Successfully requested project list from OpenShift master")
 			}
 		},
 	},

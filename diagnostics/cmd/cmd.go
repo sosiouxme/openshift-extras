@@ -10,7 +10,7 @@ import (
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/systemd"
 	"github.com/openshift/openshift-extras/diagnostics/types"
-	"github.com/openshift/origin/pkg/cmd/util/clientcmd"
+	osclientcmd "github.com/openshift/origin/pkg/cmd/util/clientcmd"
 	"github.com/spf13/cobra"
 )
 
@@ -31,32 +31,27 @@ func NewCommand() *cobra.Command {
 		Short: "This utility helps you understand and troubleshoot OpenShift v3.",
 		Long:  longDescription,
 	}
+	cmd.AddCommand(newVersionCommand("version")) // print out diagnostics version
 	osFlags := cmd.PersistentFlags()
-	diagFlags := flags.Flags{OpenshiftFlags: osFlags}
-	factory := clientcmd.New(osFlags)
-	// callback function for when this command is invoked
-	cmd.Run = func(c *cobra.Command, args []string) {
-		log.SetLevel(diagFlags.LogLevel)
-		c.SetOutput(os.Stdout)             // TODO: does this matter?
-		log.SetLogFormat(diagFlags.Format) // ignore error
-		env := discovery.Run(&diagFlags)
-		// set up openshift/kube client objects
-		env.Command = c
-		env.Factory = factory
-		env.OsClient, env.KubeClient, _ = factory.Clients()
-		// run the diagnostics
-		Diagnose(env)
-		// summarize...
-		log.Summary()
-		log.Finish()
-	}
+	factory := osclientcmd.New(osFlags) // side effect: add standard flags for openshift client
 
-	cmd.AddCommand(newVersionCommand("version"))
 	// Add flags separately from those inherited from the client
+	diagFlags := &flags.Flags{OpenshiftFlags: osFlags}
 	cmd.Flags().IntVarP(&diagFlags.LogLevel, "loglevel", "l", 2, "Level of output: 0 = Error, 1 = Warn, 2 = Info, 3 = Debug")
 	cmd.Flags().StringVarP(&diagFlags.Format, "output", "o", "text", "Output format: text|json|yaml")
 	cmd.Flags().StringVarP(&diagFlags.OpenshiftPath, "openshift", "", "", "Path to 'openshift' binary")
 	cmd.Flags().StringVarP(&diagFlags.OscPath, "osc", "", "", "Path to 'osc' client binary")
+
+	// set callback function for when this command is invoked:
+	cmd.Run = func(c *cobra.Command, args []string) {
+		log.SetLevel(diagFlags.LogLevel)
+		c.SetOutput(os.Stdout)             // TODO: does this matter?
+		log.SetLogFormat(diagFlags.Format) // note, ignore the error returned if format is unknown, just do text
+		env := discovery.Run(diagFlags, factory, c)
+		Diagnose(env)
+		log.Summary()
+		log.Finish()
+	}
 
 	return cmd
 }
