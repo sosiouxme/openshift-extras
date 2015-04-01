@@ -168,7 +168,6 @@ func getContextAccess(factory *osclientcmd.Factory, ctxName string, ctx clientcm
 		Latest().
 		Do().
 		Object()
-	//Infos()
 	if err == nil { // success!
 		list := obj.(*pkgapi.ProjectList).Items
 		if len(list) == 0 {
@@ -202,6 +201,7 @@ func getContextAccess(factory *osclientcmd.Factory, ctxName string, ctx clientcm
 		connRefusedRx := regexp.MustCompile("dial tcp (\\S+): connection refused")
 		connTimeoutRx := regexp.MustCompile("dial tcp (\\S+): (?:connection timed out|i/o timeout)")
 		unauthenticatedMsg := `403 Forbidden: Forbidden: "/osapi/v1beta1/projects?namespace=" denied by default`
+		unauthorizedRx := regexp.MustCompile("401 Unauthorized: Unauthorized$")
 
 		malformedHTTPMsg := "malformed HTTP response"
 		malformedTLSMsg := "tls: oversized record received with length"
@@ -320,12 +320,18 @@ You will not be able to connect or do anything at all with OpenShift
 until this server problem is resolved or you specify a corrected
 server address.`
 		case strings.Contains(errm, unauthenticatedMsg):
-			errId, reason = "clientUnauth", `
+			errId, reason = "clientUnauthn", `
 This means that when we tried to make a request to the OpenShift API
 server, your kubeconfig did not present valid credentials to
 authenticate your client. Credentials generally consist of a client
 key/certificate or an access token. Your kubeconfig may not have
 presented any, or they may be invalid.`
+		case unauthorizedRx.MatchString(errm):
+			errId, reason = "clientUnauthz", `
+This means that when we tried to make a request to the OpenShift API
+server, the request required credentials that were not presented.
+This can happen when an authentication token expires. Try logging in
+with this user again.`
 		default:
 			errId, reason = "clientUnknownConnErr", `Diagnostics does not have an explanation for what this means. Please report this error so one can be added.`
 		}
