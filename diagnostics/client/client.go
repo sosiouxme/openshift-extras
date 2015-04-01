@@ -2,56 +2,55 @@ package client
 
 import (
 	"fmt"
+	kapi "github.com/GoogleCloudPlatform/kubernetes/pkg/api"
 	clientcmdapi "github.com/GoogleCloudPlatform/kubernetes/pkg/client/clientcmd/api"
 	"github.com/openshift/openshift-extras/diagnostics/log"
 	"github.com/openshift/openshift-extras/diagnostics/types"
 )
 
 var Diagnostics = map[string]types.Diagnostic{
-	"KubeconfigContexts": types.Diagnostic{
-		Description: "Test that kubeconfig contexts and current context are ok",
+	"ConfigContexts": types.Diagnostic{
+		Description: "Test that client config contexts have no undefined references",
 		Condition: func(env *types.Environment) (skip bool, reason string) {
 			if env.ClientConfigRaw == nil {
-				return true, "There is no .kubeconfig file"
+				return true, "There is no client config file"
 			}
 			return false, ""
 		},
 		Run: func(env *types.Environment) {
-			kc := env.ClientConfigRaw
-			log.Info("kubeconfigTest", "Testing server configuration(s) from kubeconfig")
-			cc := kc.CurrentContext
+			cc := env.ClientConfigRaw
+			current := cc.CurrentContext
 			ccSuccess := false
 			var ccResult log.Msg //nil
-			for context, _ := range kc.Contexts {
-				result, success := TestContext(context, kc)
-				msg := log.Msg{"tmpl": "For kubeconfig context '{{.context}}':{{.result}}", "context": context, "result": result}
-				if context == cc {
+			for context, _ := range cc.Contexts {
+				result, success := TestContext(context, cc)
+				msg := log.Msg{"tmpl": "For client config context '{{.context}}':{{.result}}", "context": context, "result": result}
+				if context == current {
 					ccResult, ccSuccess = msg, success
 				} else if success {
-					log.Infom("kubeconfigSuccess", msg)
+					log.Infom("clientCfgSuccess", msg)
 				} else {
-					log.Warnm("kubeconfigWarn", msg)
+					log.Warnm("clientCfgWarn", msg)
 				}
-				// TODO: actually test whether these contexts are usable
 			}
-			if _, exists := kc.Contexts[cc]; exists {
+			if _, exists := cc.Contexts[current]; exists {
 				ccResult["tmpl"] = `
-The current context from kubeconfig is '{{.context}}'
+The current context from client config is '{{.context}}'
 This will be used by default to contact your OpenShift server.
 ` + ccResult["tmpl"].(string)
 				if ccSuccess {
-					log.Infom("currentkcSuccess", ccResult)
+					log.Infom("currentccSuccess", ccResult)
 				} else {
-					log.Errorm("currentkcWarn", ccResult)
+					log.Errorm("currentccWarn", ccResult)
 				}
 			} else { // context does not exist
 				log.Errorm("cConUndef", log.Msg{"tmpl": `
-Your kubeconfig specifies a current context of '{{.context}}'
+Your client config specifies a current context of '{{.context}}'
 which is not defined; it is likely that a mistake was introduced while
-manually editing your kubeconfig. If this is a simple typo, you may be
+manually editing your config. If this is a simple typo, you may be
 able to fix it manually.
-The OpenShift master creates a fresh kubeconfig when it is started; it may be
-useful to use this as a base if available.`, "context": cc})
+The OpenShift master creates a fresh config when it is started; it may be
+useful to use this as a base if available.`, "context": current})
 			}
 		},
 	},
@@ -60,20 +59,24 @@ useful to use this as a base if available.`, "context": cc})
 func TestContext(contextName string, config *clientcmdapi.Config) (result string, success bool) {
 	context, exists := config.Contexts[contextName]
 	if !exists {
-		return "kubeconfig context '" + contextName + "' is not defined.", false
+		return "client config context '" + contextName + "' is not defined.", false
 	}
 	clusterName := context.Cluster
 	cluster, exists := config.Clusters[clusterName]
 	if !exists {
-		return fmt.Sprintf("kubeconfig context '%s' has a cluster '%s' which is not defined.", contextName, clusterName), false
+		return fmt.Sprintf("client config context '%s' has a cluster '%s' which is not defined.", contextName, clusterName), false
+	}
+	authName := context.AuthInfo
+	if _, exists := config.AuthInfos[authName]; !exists {
+		return fmt.Sprintf("client config context '%s' has a user identity '%s' which is not defined.", contextName, authName), false
 	}
 	project := context.Namespace
 	if project == "" {
-		project = "default" // OpenShift fills this in
+		project = kapi.NamespaceDefault // OpenShift/k8s fills this in if missing
 	}
 	// TODO: actually send a request to see if can connect
 	return fmt.Sprintf(`
 The server URL is '%s'
 The user authentication is '%s'
-The project is '%s'`, cluster.Server, context.AuthInfo, project), true
+The current project is '%s'`, cluster.Server, authName, project), true
 }
