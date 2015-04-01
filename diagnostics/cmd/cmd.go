@@ -47,7 +47,7 @@ func NewCommand() *cobra.Command {
 		log.SetLevel(diagFlags.LogLevel)
 		c.SetOutput(os.Stdout)             // TODO: does this matter?
 		log.SetLogFormat(diagFlags.Format) // note, ignore the error returned if format is unknown, just do text
-		env := discovery.Run(diagFlags, factory, c)
+		env := discovery.Run(diagFlags, factory)
 		Diagnose(env)
 		log.Summary()
 		log.Finish()
